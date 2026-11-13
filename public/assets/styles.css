@@ -62,3 +62,6 @@ body{margin:0;background:#080808;padding:20px;font-family:Arial,Helvetica,sans-s
 #golddigger .gd-legal { font-size: 11px; color: var(--gd-muted); line-height: 1.5; }
 #golddigger .gd-legal a, #golddigger .gd-sidebottom a, #golddigger .gd-section p a { color: #ff8a9a; }
 #golddigger .gd-sidebottom small + small { margin-top: 4px; }
+#golddigger .gd-choice { border: 1px solid #333; border-radius: 10px; padding: 10px 14px; display: grid; gap: 8px; }
+#golddigger .gd-choice legend { padding: 0 6px; color: var(--gd-muted); font-size: 11px; }
+#golddigger a.gd-action { display: inline-block; text-decoration: none; color: #fff; }

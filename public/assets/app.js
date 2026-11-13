@@ -62,7 +62,7 @@
       (list.length ? `<div class="gd-grid">${list.map((ch) => {
         const camps = gd.campaigns.filter((c) => c.channelId === ch.id);
         const revenue = camps.reduce((a, c) => a + metric(c, 'revenue'), 0);
-        return `<article class="gd-card"><div class="gd-cover ${esc(ch.theme)}">${ch.thumbnailUrl ? `<img src="${esc(ch.thumbnailUrl)}" alt="" referrerpolicy="no-referrer">` : esc(ch.mark)}</div><div class="gd-cardtop"><h3>${esc(ch.name)}</h3>${ch.isDemo ? badge('Ejemplo', '') : ch.connected ? (ch.lastError ? badge('Revisar', 'red') : badge('Conectado')) : badge('Sin conectar', 'wait')}</div><p>${esc(ch.niche)}</p><div class="gd-details"><div><span>Suscriptores</span><b>${Number(ch.metrics?.subscribers || 0).toLocaleString('en-US')}</b></div><div><span>Campañas activas</span><b>${camps.filter((c) => c.status === 'active').length}</b></div><div><span>Ingresos del período</span><b>${money(revenue)}</b></div><div><span>Publicación</span><b>${camps.some((c) => c.autoPublish) ? 'Automática' : 'Manual'}</b></div></div><div class="gd-flex">${button('Ver campañas', 'campaigns-of:' + ch.id)}${ch.connected ? '' : button('Conectar con YouTube', 'go-connections')}</div></article>`;
+        return `<article class="gd-card"><div class="gd-cover ${esc(ch.theme)}">${ch.thumbnailUrl ? `<img src="${esc(ch.thumbnailUrl)}" alt="" referrerpolicy="no-referrer">` : esc(ch.mark)}</div><div class="gd-cardtop"><h3>${esc(ch.name)}</h3>${ch.isDemo ? badge('Ejemplo', '') : ch.connected ? (ch.lastError ? badge('Revisar', 'red') : badge('Conectado')) : badge('Sin conectar', 'wait')}</div><p>${esc(ch.niche)}</p><div class="gd-details"><div><span>Suscriptores</span><b>${Number(ch.metrics?.subscribers || 0).toLocaleString('en-US')}</b></div><div><span>Campañas activas</span><b>${camps.filter((c) => c.status === 'active').length}</b></div><div><span>Ingresos del período</span><b>${money(revenue)}</b></div><div><span>Publicación</span><b>${camps.some((c) => c.autoPublish) ? 'Automática' : 'Manual'}</b></div></div><div class="gd-flex">${button('Ver campañas', 'campaigns-of:' + ch.id)}${ch.connected ? '' : button('Conectar con YouTube', googleReady() ? 'yt-start:' + ch.id : 'go-connections')}</div></article>`;
       }).join('')}</div>` : empty('Todavía no hay canales. Crea uno para empezar a armar campañas.', action('+ Nuevo canal', 'channel-new'))) +
       `<section class="gd-panel gd-section"><h2>Cada canal conserva su identidad</h2><div class="gd-details"><div><span>Voz, idioma y marca visual</span><span>Por canal</span></div><div><span>Autorización de YouTube</span><span>Conexión independiente</span></div><div><span>Presupuesto y calendario</span><span>Por campaña</span></div></div></section>` + note;
   }
@@ -115,27 +115,60 @@
 
 
   // ── Canales y datos de ejemplo ────────────────────────────────────────────
+  const YT_CREATE_URL = 'https://www.youtube.com/channel_switcher';
   function newChannel() {
-    modal(`<div class="gd-panelhead"><div><h2>Nuevo canal</h2><p>Registra el canal para organizar sus campañas. La conexión con YouTube se hará después, desde Conexiones.</p></div>${button('Cerrar', 'close')}</div>
+    modal(`<div class="gd-panelhead"><div><h2>Nuevo canal</h2><p>Regístralo en Golddigger y conéctalo con YouTube en el mismo paso.</p></div>${button('Cerrar', 'close')}</div>
       <form id="gd-channelform" class="gd-form" novalidate>
         <label>Nombre del canal<input name="name" maxlength="60" placeholder="Ej. Archivo Infinito" required></label>
         <label>Nicho<input name="niche" maxlength="120" placeholder="Ej. Historia · Español"></label>
+        <fieldset class="wide gd-choice"><legend>¿El canal ya existe en YouTube?</legend>
+          <label class="gd-check"><input type="radio" name="mode" value="create" checked>No, quiero crearlo en YouTube ahora</label>
+          <label class="gd-check"><input type="radio" name="mode" value="existing">Sí, ya existe: conectarlo</label>
+          <label class="gd-check"><input type="radio" name="mode" value="later">Solo registrarlo en Golddigger por ahora</label>
+        </fieldset>
         <p class="gd-error" role="alert"></p>
-        <div class="wide gd-flex"><button class="gd-action" type="submit">Crear canal</button>${button('Cancelar', 'close')}</div>
+        <div class="wide gd-flex"><button class="gd-action" type="submit">Continuar</button>${button('Cancelar', 'close')}</div>
       </form>`);
     const form = $('#gd-channelform');
     form.onsubmit = (e) => {
       e.preventDefault();
       const f = new FormData(form);
       if (!String(f.get('name')).trim()) return showFormError(form, { message: 'El nombre del canal es obligatorio.', field: 'name' });
+      const mode = f.get('mode');
       submitting(form, async () => {
         const { channel: ch } = await api.post('/api/channels', { name: f.get('name'), niche: f.get('niche') });
         gd.channels.push(ch);
-        closeModal();
+        await gd.loadIntegrations?.();
         gd.render();
-        notify(`Canal «${ch.name}» creado. Ya puedes crear campañas para él.`);
+        if (mode === 'later') { closeModal(); return notify(`Canal «${ch.name}» registrado. Puedes conectarlo con YouTube cuando quieras.`); }
+        if (mode === 'existing' && googleReady()) return startYouTube(ch.id);
+        channelNextStep(ch, mode);
       });
     };
+  }
+  const googleReady = () => Boolean(gd.integrations?.google?.configured);
+  function channelNextStep(ch, mode) {
+    const g = googleReady();
+    const create = mode === 'create'
+      ? `<li><b>Crea el canal en YouTube.</b> Se abre en otra pestaña: elige la cuenta de Google, pulsa <b>Crear un canal</b> y ponle «${esc(ch.name)}». Así puedes tener varios canales en una misma cuenta.<div style="margin-top:10px"><a class="gd-action" href="${YT_CREATE_URL}" target="_blank" rel="noopener noreferrer">Abrir YouTube ↗</a></div></li>`
+      : '';
+    const connect = g
+      ? `<li><b>Conéctalo con Golddigger.</b> Google te pedirá elegir la cuenta y el canal «${esc(ch.name)}».<div style="margin-top:10px">${action(mode === 'create' ? 'Ya lo creé · Conectar con YouTube' : 'Conectar con YouTube', 'yt-start:' + ch.id)}</div></li>`
+      : `<li><b>Conéctalo con Golddigger.</b> Antes falta configurar el cliente de Google Cloud.<div style="margin-top:10px">${button('Ir a Conexiones', 'go-connections')}</div></li>`;
+    modal(`<div class="gd-panelhead"><div><h2>«${esc(ch.name)}» registrado</h2><p>${mode === 'create' ? 'Ahora créalo en YouTube y conéctalo.' : 'Falta conectarlo con YouTube.'}</p></div>${button('Cerrar', 'close')}</div>
+      <ol class="gd-steps">${create}${connect}</ol>
+      <p class="gd-note">YouTube no permite que otras aplicaciones creen canales: el paso de creación siempre se hace en YouTube. Puedes cerrar esta ventana y conectar después desde Canales o Conexiones.</p>`);
+  }
+  async function startYouTube(channelId, btn) {
+    if (btn) btn.disabled = true;
+    try {
+      const { url } = await api.post('/api/youtube/connect', { channelId });
+      notify('Abriendo Google para autorizar el canal…');
+      window.location.assign(url);
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      if (err.status !== 401) notify(err.message);
+    }
   }
   async function clearDemo(btn) {
     const n = gd.campaigns.filter((c) => c.isDemo).length;
@@ -394,6 +427,7 @@
     else if (a === 'user-new') newUser();
     else if (a === 'channel-new') newChannel();
     else if (a === 'go-connections') go(6);
+    else if (a.startsWith('yt-start:')) startYouTube(Number(a.split(':')[1]), b);
     else if (a === 'demo-clear') clearDemo(b);
     else if (a === 'users-reload') { team = null; render(); }
     else if (a.startsWith('user-role:')) changeRole(+a.split(':')[1], b);
