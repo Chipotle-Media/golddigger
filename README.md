@@ -48,12 +48,13 @@ curl http://127.0.0.1:3010/api/health                # versión en línea (commi
 ## Pantallas incluidas
 
 - Resumen: ingresos por campaña y total, costos y margen de producción.
-- Canales: identidades y resultados de ejemplo; filtro global por canal.
-- Campañas: tarjetas, pausa visual y reglas de producción.
+- Canales: alta de canales propios; filtro global por canal. Aviso para limpiar los datos de ejemplo.
+- Campañas: alta, edición, pausa y editor de flujo con versiones.
 - Producción: piezas de ejemplo, filtros y ficha de metadatos.
 - Calendario: programación ilustrativa.
 - Resultados y costos: métricas y desglose de costos simulados.
 - Conexiones: estados de configuración de proveedores; no solicita claves.
+- Usuarios: equipo del panel, roles (propietario / editor), altas y bajas.
 
 ## Editor de flujo
 
@@ -82,7 +83,10 @@ PostgreSQL guarda usuarios, espacios de trabajo, sesiones, canales, campañas y 
 | POST | `/api/auth/login` · `/api/auth/logout` | Abrir y cerrar sesión (cookie HttpOnly, 30 días) |
 | GET | `/api/auth/me` | Usuario y espacio de trabajo actuales |
 | POST | `/api/auth/password` | Cambiar contraseña (cierra las demás sesiones) |
-| GET | `/api/channels` | Canales del espacio de trabajo |
+| GET/POST | `/api/channels` | Listar y crear canales (aún sin conexión a YouTube) |
+| GET/POST | `/api/users` | Usuarios del panel; solo propietarios agregan |
+| PATCH/DELETE | `/api/users/:id` | Cambiar rol o quitar acceso (propietarios; siempre queda al menos uno) |
+| POST | `/api/demo/clear` | Borrar datos de ejemplo (propietarios; respeta lo creado por el equipo) |
 | GET/POST | `/api/campaigns` | Listar y crear campañas |
 | GET/PATCH | `/api/campaigns/:id` | Leer, editar, pausar o reanudar |
 | GET/PUT | `/api/campaigns/:id/workflow` | Leer el flujo y guardar una versión nueva (`baseVersion` evita pisar cambios ajenos) |

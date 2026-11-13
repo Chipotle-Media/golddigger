@@ -12,7 +12,7 @@ const CAMPAIGN_COLUMNS = {
 
 const CAMPAIGN_SELECT = `
   SELECT c.id, c.channel_id, c.name, c.niche, c."references", c.format, c.days, c.time, c.budget_monthly, c.max_per_piece,
-         c.script_tool, c.clips_tool, c.instructions, c.auto_publish, c.status, c.metrics, c.created_at, c.updated_at,
+         c.script_tool, c.clips_tool, c.instructions, c.auto_publish, c.status, c.metrics, c.is_demo, c.created_at, c.updated_at,
          COALESCE((SELECT max(version) FROM workflow_versions w WHERE w.campaign_id = c.id), 0) AS workflow_version
   FROM campaigns c`;
 
@@ -20,7 +20,7 @@ const toCampaign = (r) => ({
   id: Number(r.id), channelId: Number(r.channel_id), name: r.name, niche: r.niche, references: r.references, format: r.format,
   days: r.days, time: r.time, budgetMonthly: Number(r.budget_monthly), maxPerPiece: Number(r.max_per_piece),
   scriptTool: r.script_tool, clipsTool: r.clips_tool, instructions: r.instructions, autoPublish: r.auto_publish,
-  status: r.status, metrics: r.metrics, createdAt: r.created_at.toISOString(), updatedAt: r.updated_at.toISOString(),
+  status: r.status, metrics: r.metrics, isDemo: r.is_demo, createdAt: r.created_at.toISOString(), updatedAt: r.updated_at.toISOString(),
   workflowVersion: Number(r.workflow_version)
 });
 const toChannel = (r) => ({
@@ -61,8 +61,8 @@ export async function createPostgresStore(connectionString) {
     for (const c of DEMO_CAMPAIGNS) {
       await client.query(
         `INSERT INTO campaigns (workspace_id, channel_id, name, niche, "references", format, days, time, budget_monthly, max_per_piece,
-           script_tool, clips_tool, instructions, auto_publish, status, metrics)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+           script_tool, clips_tool, instructions, auto_publish, status, metrics, is_demo)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,true)`,
         [workspaceId, chIds[c.channel], c.name, c.niche, c.references, c.format, c.days, c.time, c.budgetMonthly, c.maxPerPiece,
           c.scriptTool, c.clipsTool, c.instructions, c.autoPublish, c.status, c.metrics]);
     }
@@ -90,7 +90,7 @@ export async function createPostgresStore(connectionString) {
     async health() { await q('SELECT 1'); return true; },
     async countUsers() { return Number((await q('SELECT count(*) FROM users')).rows[0].count); },
 
-    async createUser({ email, name, passwordHash, workspaceName, joinWorkspaceId }) {
+    async createUser({ email, name, passwordHash, workspaceName, joinWorkspaceId, role: wantedRole }) {
       return tx(async (c) => {
         if ((await c.query('SELECT 1 FROM users WHERE lower(email) = lower($1)', [email])).rowCount) {
           throw new ConflictError('Ya existe un usuario con ese correo.');
@@ -106,7 +106,7 @@ export async function createPostgresStore(connectionString) {
           await seedWorkspace(c, workspace.id);
         }
         const hasMembers = (await c.query('SELECT 1 FROM memberships WHERE workspace_id = $1', [workspace.id])).rowCount > 0;
-        const role = hasMembers ? 'editor' : 'owner';
+        const role = !hasMembers ? 'owner' : wantedRole || 'editor';
         await c.query('INSERT INTO memberships (user_id, workspace_id, role) VALUES ($1,$2,$3)', [user.id, workspace.id, role]);
         return { user: { id: Number(user.id), email: user.email, name: user.name }, workspace: { id: Number(workspace.id), name: workspace.name, role } };
       });
@@ -134,6 +134,35 @@ export async function createPostgresStore(connectionString) {
       return r ? { id: Number(r.id), name: r.name, role: r.role } : null;
     },
 
+    async listMembers(ws) {
+      return (await q(`SELECT u.id, u.name, u.email, m.role, u.created_at, u.last_login_at FROM memberships m
+                       JOIN users u ON u.id = m.user_id WHERE m.workspace_id = $1 ORDER BY u.id`, [ws])).rows
+        .map((r) => ({ id: Number(r.id), name: r.name, email: r.email, role: r.role, createdAt: r.created_at.toISOString(), lastLoginAt: r.last_login_at?.toISOString() || null }));
+    },
+    async setMemberRole(ws, userId, role) {
+      const ok = await tx(async (c) => {
+        const owners = (await c.query(`SELECT user_id FROM memberships WHERE workspace_id = $1 AND role = 'owner' FOR UPDATE`, [ws])).rows.map((r) => Number(r.user_id));
+        const m = (await c.query('SELECT role FROM memberships WHERE workspace_id = $1 AND user_id = $2', [ws, userId])).rows[0];
+        if (!m) return false;
+        if (m.role === 'owner' && role !== 'owner' && owners.length === 1) throw new ConflictError('El espacio debe conservar al menos un propietario.');
+        await c.query('UPDATE memberships SET role = $3 WHERE workspace_id = $1 AND user_id = $2', [ws, userId, role]);
+        return true;
+      });
+      return ok ? (await this.listMembers(ws)).find((x) => x.id === userId) : null;
+    },
+    async removeMember(ws, userId) {
+      return tx(async (c) => {
+        const owners = (await c.query(`SELECT user_id FROM memberships WHERE workspace_id = $1 AND role = 'owner' FOR UPDATE`, [ws])).rows.map((r) => Number(r.user_id));
+        const m = (await c.query('SELECT role FROM memberships WHERE workspace_id = $1 AND user_id = $2', [ws, userId])).rows[0];
+        if (!m) return false;
+        if (m.role === 'owner' && owners.length === 1) throw new ConflictError('El espacio debe conservar al menos un propietario.');
+        await c.query('DELETE FROM memberships WHERE workspace_id = $1 AND user_id = $2', [ws, userId]);
+        await c.query('DELETE FROM sessions WHERE workspace_id = $1 AND user_id = $2', [ws, userId]);
+        await c.query('DELETE FROM users WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM memberships WHERE user_id = $1)', [userId]);
+        return true;
+      });
+    },
+
     async createSession({ tokenHash, userId, workspaceId, expiresAt, userAgent, ip }) {
       await q('INSERT INTO sessions (token_hash, user_id, workspace_id, expires_at, user_agent, ip) VALUES ($1,$2,$3,$4,$5,$6)',
         [tokenHash, userId, workspaceId, expiresAt, userAgent?.slice(0, 300) || null, ip || null]);
@@ -155,6 +184,21 @@ export async function createPostgresStore(connectionString) {
 
     async listChannels(ws) { return (await q('SELECT * FROM channels WHERE workspace_id = $1 ORDER BY id', [ws])).rows.map(toChannel); },
     async getChannel(ws, id) { const r = (await q('SELECT * FROM channels WHERE workspace_id = $1 AND id = $2', [ws, id])).rows[0]; return r ? toChannel(r) : null; },
+
+    async createChannel(ws, { name, niche, mark, theme }) {
+      const r = (await q('INSERT INTO channels (workspace_id, name, niche, mark, theme) VALUES ($1,$2,$3,$4,$5) RETURNING *', [ws, name, niche, mark, theme])).rows[0];
+      return toChannel(r);
+    },
+    /** Borra campañas de ejemplo (y sus flujos) y canales de ejemplo vacíos; los que tienen campañas del equipo se conservan sin métricas simuladas. */
+    async clearDemoData(ws) {
+      return tx(async (c) => {
+        const campaigns = (await c.query('DELETE FROM campaigns WHERE workspace_id = $1 AND is_demo', [ws])).rowCount;
+        const channels = (await c.query(`DELETE FROM channels ch WHERE ch.workspace_id = $1 AND ch.is_demo
+                                         AND NOT EXISTS (SELECT 1 FROM campaigns x WHERE x.channel_id = ch.id)`, [ws])).rowCount;
+        const keptChannels = (await c.query(`UPDATE channels SET is_demo = false, metrics = '{}'::jsonb WHERE workspace_id = $1 AND is_demo`, [ws])).rowCount;
+        return { campaigns, channels, keptChannels };
+      });
+    },
 
     async listCampaigns(ws) { return (await q(`${CAMPAIGN_SELECT} WHERE c.workspace_id = $1 ORDER BY c.id`, [ws])).rows.map(toCampaign); },
     async getCampaign(ws, id) { const r = (await q(`${CAMPAIGN_SELECT} WHERE c.workspace_id = $1 AND c.id = $2`, [ws, id])).rows[0]; return r ? toCampaign(r) : null; },

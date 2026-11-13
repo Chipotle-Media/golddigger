@@ -1,6 +1,6 @@
 import { hashPassword, verifyPassword, newSessionToken, hashToken, parseCookies, sessionCookie, clearedCookie,
   SESSION_COOKIE, SESSION_DAYS, LoginLimiter } from './auth.js';
-import { validateCampaign, validateWorkflow, validateCredentials, validateNewPassword, ValidationError } from './validate.js';
+import { validateCampaign, validateWorkflow, validateCredentials, validateNewPassword, validateEmail, validateChannel, ValidationError } from './validate.js';
 import { defaultFlow } from './catalog.js';
 
 const MAX_BODY = 256 * 1024;
@@ -111,8 +111,65 @@ export function createApi({ store, secureCookies = false, limiter = new LoginLim
     return { ok: true };
   });
 
+  // ── Usuarios del espacio de trabajo ──────────────────────────────────────
+  const ownerOnly = (session) => {
+    if (session.workspace.role !== 'owner') throw new HttpError(403, 'Solo un propietario puede administrar usuarios.');
+  };
+  const validRole = (role) => {
+    if (!['owner', 'editor'].includes(role)) throw new ValidationError('Rol no válido.', 'role');
+    return role;
+  };
+
+  route('GET', '/api/users', async ({ session }) => ({
+    users: (await store.listMembers(session.workspace.id)).map((u) => ({ ...u, isMe: u.id === session.user.id })),
+    canManage: session.workspace.role === 'owner'
+  }));
+
+  route('POST', '/api/users', async ({ req, res, session }) => {
+    ownerOnly(session);
+    const body = await readJson(req);
+    const email = validateEmail(body.email);
+    const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 80) : email.split('@')[0];
+    const password = validateNewPassword(body.password);
+    const role = validRole(body.role || 'editor');
+    const { user } = await store.createUser({ email, name, passwordHash: await hashPassword(password), joinWorkspaceId: session.workspace.id, role });
+    res.statusCode = 201;
+    return { user: (await store.listMembers(session.workspace.id)).find((u) => u.id === user.id) };
+  });
+
+  route('PATCH', '/api/users/:id', async ({ req, params, session }) => {
+    ownerOnly(session);
+    const role = validRole((await readJson(req)).role);
+    const user = await store.setMemberRole(session.workspace.id, intId(params.id), role);
+    if (!user) throw new HttpError(404, 'Usuario no encontrado.');
+    return { user: { ...user, isMe: user.id === session.user.id } };
+  });
+
+  route('DELETE', '/api/users/:id', async ({ params, session }) => {
+    ownerOnly(session);
+    const id = intId(params.id);
+    if (id === session.user.id) throw new HttpError(400, 'No puedes quitarte a ti mismo.');
+    if (!(await store.removeMember(session.workspace.id, id))) throw new HttpError(404, 'Usuario no encontrado.');
+    return { ok: true };
+  });
+
   // ── Canales y campañas ────────────────────────────────────────────────────
   route('GET', '/api/channels', async ({ session }) => ({ channels: await store.listChannels(session.workspace.id) }));
+
+  route('POST', '/api/channels', async ({ req, res, session }) => {
+    const { name, niche } = validateChannel(await readJson(req));
+    const existing = await store.listChannels(session.workspace.id);
+    if (existing.length >= 50) throw new HttpError(400, 'Máximo 50 canales por espacio de trabajo.');
+    const mark = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || 'C';
+    const theme = ['', 'pink', 'blue'][existing.length % 3];
+    res.statusCode = 201;
+    return { channel: await store.createChannel(session.workspace.id, { name, niche, mark, theme }) };
+  });
+
+  route('POST', '/api/demo/clear', async ({ session }) => {
+    if (session.workspace.role !== 'owner') throw new HttpError(403, 'Solo un propietario puede limpiar los datos de ejemplo.');
+    return { cleared: await store.clearDemoData(session.workspace.id) };
+  });
 
   route('GET', '/api/campaigns', async ({ session }) => ({ campaigns: await store.listCampaigns(session.workspace.id) }));
 

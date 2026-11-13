@@ -25,7 +25,7 @@ export function createMemoryStore() {
       return row.id;
     });
     for (const { channel, ...c } of DEMO_CAMPAIGNS) {
-      db.campaigns.push({ id: id(), workspaceId, channelId: chIds[channel], createdAt: now(), updatedAt: now(), ...clone(c) });
+      db.campaigns.push({ id: id(), workspaceId, channelId: chIds[channel], isDemo: true, createdAt: now(), updatedAt: now(), ...clone(c) });
     }
   }
 
@@ -36,7 +36,7 @@ export function createMemoryStore() {
     async health() { return true; },
     async countUsers() { return db.users.length; },
 
-    async createUser({ email, name, passwordHash, workspaceName, joinWorkspaceId }) {
+    async createUser({ email, name, passwordHash, workspaceName, joinWorkspaceId, role: wantedRole }) {
       if (db.users.some((u) => u.email === email)) throw new ConflictError('Ya existe un usuario con ese correo.');
       const user = { id: id(), email, name, passwordHash, createdAt: now(), lastLoginAt: null };
       let workspace = joinWorkspaceId ? db.workspaces.find((w) => w.id === joinWorkspaceId) : null;
@@ -47,8 +47,9 @@ export function createMemoryStore() {
         db.workspaces.push(workspace);
         seedWorkspace(workspace.id);
       }
-      const role = db.memberships.some((m) => m.workspaceId === workspace.id) ? 'editor' : 'owner';
-      db.memberships.push({ userId: user.id, workspaceId: workspace.id, role });
+      const hasMembers = db.memberships.some((m) => m.workspaceId === workspace.id);
+      const role = !hasMembers ? 'owner' : wantedRole || 'editor';
+      db.memberships.push({ userId: user.id, workspaceId: workspace.id, role, createdAt: now() });
       return { user: publicUser(user), workspace: { id: workspace.id, name: workspace.name, role } };
     },
     async findUserByEmail(email) { const u = db.users.find((x) => x.email === email); return u ? clone(u) : null; },
@@ -69,6 +70,33 @@ export function createMemoryStore() {
       return { id: w.id, name: w.name, role: m.role };
     },
 
+    async listMembers(ws) {
+      return db.memberships.filter((m) => m.workspaceId === ws).map((m) => {
+        const u = db.users.find((x) => x.id === m.userId);
+        return { id: u.id, name: u.name, email: u.email, role: m.role, createdAt: u.createdAt, lastLoginAt: u.lastLoginAt };
+      }).sort((a, b) => a.id - b.id);
+    },
+    async setMemberRole(ws, userId, role) {
+      const m = db.memberships.find((x) => x.workspaceId === ws && x.userId === userId);
+      if (!m) return null;
+      if (m.role === 'owner' && role !== 'owner' && db.memberships.filter((x) => x.workspaceId === ws && x.role === 'owner').length === 1) {
+        throw new ConflictError('El espacio debe conservar al menos un propietario.');
+      }
+      m.role = role;
+      return (await this.listMembers(ws)).find((x) => x.id === userId);
+    },
+    async removeMember(ws, userId) {
+      const m = db.memberships.find((x) => x.workspaceId === ws && x.userId === userId);
+      if (!m) return false;
+      if (m.role === 'owner' && db.memberships.filter((x) => x.workspaceId === ws && x.role === 'owner').length === 1) {
+        throw new ConflictError('El espacio debe conservar al menos un propietario.');
+      }
+      db.memberships.splice(db.memberships.indexOf(m), 1);
+      for (const [k, sess] of db.sessions) if (sess.userId === userId && sess.workspaceId === ws) db.sessions.delete(k);
+      if (!db.memberships.some((x) => x.userId === userId)) db.users = db.users.filter((u) => u.id !== userId);
+      return true;
+    },
+
     async createSession(s) { db.sessions.set(s.tokenHash, { ...s, expiresAt: new Date(s.expiresAt).toISOString() }); },
     async getSession(tokenHash) {
       const s = db.sessions.get(tokenHash);
@@ -85,10 +113,27 @@ export function createMemoryStore() {
     async listChannels(ws) { return db.channels.filter((c) => c.workspaceId === ws).map(({ workspaceId, ...c }) => clone(c)); },
     async getChannel(ws, chId) { const c = db.channels.find((x) => x.workspaceId === ws && x.id === chId); if (!c) return null; const { workspaceId, ...rest } = c; return clone(rest); },
 
+    async createChannel(ws, { name, niche, mark, theme }) {
+      const row = { id: id(), workspaceId: ws, name, niche, mark, theme, provider: 'youtube', isDemo: false, metrics: {}, createdAt: now() };
+      db.channels.push(row);
+      const { workspaceId, ...rest } = row;
+      return clone(rest);
+    },
+    async clearDemoData(ws) {
+      const demoCamps = db.campaigns.filter((c) => c.workspaceId === ws && c.isDemo).map((c) => c.id);
+      db.campaigns = db.campaigns.filter((c) => !demoCamps.includes(c.id));
+      db.workflows = db.workflows.filter((w) => !demoCamps.includes(w.campaignId));
+      const before = db.channels.length;
+      db.channels = db.channels.filter((ch) => !(ch.workspaceId === ws && ch.isDemo && !db.campaigns.some((c) => c.channelId === ch.id)));
+      let keptChannels = 0;
+      for (const ch of db.channels) if (ch.workspaceId === ws && ch.isDemo) { ch.isDemo = false; ch.metrics = {}; keptChannels++; }
+      return { campaigns: demoCamps.length, channels: before - db.channels.length, keptChannels };
+    },
+
     async listCampaigns(ws) { return db.campaigns.filter((c) => c.workspaceId === ws).map(campaignOut); },
     async getCampaign(ws, cId) { const c = db.campaigns.find((x) => x.workspaceId === ws && x.id === cId); return c ? campaignOut(c) : null; },
     async createCampaign(ws, data) {
-      const row = { id: id(), workspaceId: ws, metrics: {}, createdAt: now(), updatedAt: now(), ...clone(data) };
+      const row = { id: id(), workspaceId: ws, metrics: {}, isDemo: false, createdAt: now(), updatedAt: now(), ...clone(data) };
       db.campaigns.push(row);
       return campaignOut(row);
     },

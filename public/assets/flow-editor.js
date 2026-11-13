@@ -298,6 +298,7 @@
   root.addEventListener('submit', (e) => { if (e.target.id === 'gf-form') e.preventDefault(); });
   window.addEventListener('beforeunload', (e) => { if (window.gd.hasUnsavedChanges()) { e.preventDefault(); e.returnValue = ''; } });
   window.addEventListener('gd:logout', () => { flows.clear(); active = null; selected = null; });
+  window.addEventListener('gd:data-reset', () => { for (const id of [...flows.keys()]) if (!campaign(id)) flows.delete(id); if (!campaign(active)) { active = null; selected = null; } });
   window.addEventListener('gd:ready', () => mount());
 
   const resize = new ResizeObserver(() => requestAnimationFrame(draw));

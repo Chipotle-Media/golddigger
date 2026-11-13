@@ -136,3 +136,11 @@ export function validateEmail(email) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) || e.length > 254) fail('Correo inválido.', 'email');
   return e;
 }
+
+export function validateChannel(body) {
+  if (!isObj(body)) fail('Datos de canal inválidos.');
+  return {
+    name: text(body.name, 'name', { min: 1, max: 60, label: 'El nombre del canal' }),
+    niche: text(body.niche, 'niche', { max: 120, label: 'El nicho' })
+  };
+}

@@ -7,7 +7,7 @@
   const content = $('#gd-content');
   const nav = $('nav');
 
-  const names = ['Resumen', 'Canales', 'Campañas', 'Producción', 'Calendario', 'Resultados y costos', 'Conexiones'];
+  const names = ['Resumen', 'Canales', 'Campañas', 'Producción', 'Calendario', 'Resultados y costos', 'Conexiones', 'Usuarios'];
   let page = 2, channel = 'all';
 
   // Estado compartido con el editor de flujo (flow-editor.js).
@@ -35,6 +35,11 @@
   const empty = (text, act) => `<div class="gd-empty"><p>${text}</p>${act ? `<div style="margin-top:12px">${act}</div>` : ''}</div>`;
 
   function notify(s) { $('#gd-notice').textContent = s; }
+  const hasDemo = () => gd.channels.some((ch) => ch.isDemo) || gd.campaigns.some((c) => c.isDemo);
+  const isOwner = () => gd.me?.workspace.role === 'owner';
+  const demoBanner = () => (hasDemo()
+    ? `<div class="gd-demo-banner"><div><strong>Estás viendo datos de ejemplo.</strong><p>Canales, campañas y cifras de muestra para recorrer el panel. ${isOwner() ? 'Bórralos cuando quieras empezar con lo tuyo.' : 'Un propietario puede borrarlos.'}</p></div>${isOwner() ? button('Limpiar datos de ejemplo', 'demo-clear') : ''}</div>`
+    : '');
   gd.notify = notify;
 
   // ── Pantallas ─────────────────────────────────────────────────────────────
@@ -48,22 +53,22 @@
   }
   function overview() {
     const active = selected().filter((c) => c.status === 'active').length;
-    return heading('Tu operación, en un vistazo', 'Ingresos, producción y próximas publicaciones.', action('+ Nueva campaña', 'new')) +
+    return heading('Tu operación, en un vistazo', 'Ingresos, producción y próximas publicaciones.', action('+ Nueva campaña', 'new')) + demoBanner() +
       `<div class="gd-stats">${stat('Ingresos acumulados', money(sum('revenue')), 'YouTube · datos simulados', true)}${stat('Costos de producción', money(sum('cost')), 'Incluye recursos y reintentos')}${stat('Margen de producción', money(sum('revenue') - sum('cost')), 'Antes de gastos generales', true)}${stat('Videos publicados', sum('videos'), active + ' campañas activas')}</div><section class="gd-panel"><div class="gd-panelhead"><h2>Ingresos por campaña</h2><span class="gd-tag">Simulado · USD</span></div>${revenueTable()}</section><section class="gd-panel"><div class="gd-panelhead"><div><h2>Producción en marcha</h2><p>Vista ilustrativa hasta conectar la ejecución real.</p></div>${badge('Ejemplo', 'wait')}</div><div class="gd-flex"><span>${esc(firstChannelName())} · Próxima pieza</span><span class="gd-tag">18:00 · Ciudad de México</span></div><div class="gd-flow"><span class="gd-step done">✓ Guion</span><span class="gd-step done">✓ Voz</span><span class="gd-step current">● Escenas · 7/10</span><span class="gd-step">Montaje</span><span class="gd-step">YouTube</span></div>${button('Ver producción', 'production')}</section>` + note;
   }
   function channels() {
     const list = selectedChannels();
-    return heading('Tus canales', 'Identidades independientes. Una sola operación.', action('+ Conectar canal', 'connect')) +
+    return heading('Tus canales', 'Identidades independientes. Una sola operación.', action('+ Nuevo canal', 'channel-new')) + demoBanner() +
       (list.length ? `<div class="gd-grid">${list.map((ch) => {
         const camps = gd.campaigns.filter((c) => c.channelId === ch.id);
         const revenue = camps.reduce((a, c) => a + metric(c, 'revenue'), 0);
-        return `<article class="gd-card"><div class="gd-cover ${esc(ch.theme)}">${esc(ch.mark)}</div><div class="gd-cardtop"><h3>${esc(ch.name)}</h3>${ch.isDemo ? badge('Demo', '') : badge('Conectado')}</div><p>${esc(ch.niche)}</p><div class="gd-details"><div><span>Suscriptores</span><b>${Number(ch.metrics?.subscribers || 0).toLocaleString('en-US')}</b></div><div><span>Campañas activas</span><b>${camps.filter((c) => c.status === 'active').length}</b></div><div><span>Ingresos del período</span><b>${money(revenue)}</b></div><div><span>Publicación</span><b>${camps.some((c) => c.autoPublish) ? 'Automática' : 'Manual'}</b></div></div>${button('Ver campañas', 'campaigns-of:' + ch.id)}</article>`;
-      }).join('')}</div>` : empty('Todavía no hay canales.')) +
+        return `<article class="gd-card"><div class="gd-cover ${esc(ch.theme)}">${esc(ch.mark)}</div><div class="gd-cardtop"><h3>${esc(ch.name)}</h3>${ch.isDemo ? badge('Ejemplo', '') : ch.externalId ? badge('Conectado') : badge('Sin conectar', 'wait')}</div><p>${esc(ch.niche)}</p><div class="gd-details"><div><span>Suscriptores</span><b>${Number(ch.metrics?.subscribers || 0).toLocaleString('en-US')}</b></div><div><span>Campañas activas</span><b>${camps.filter((c) => c.status === 'active').length}</b></div><div><span>Ingresos del período</span><b>${money(revenue)}</b></div><div><span>Publicación</span><b>${camps.some((c) => c.autoPublish) ? 'Automática' : 'Manual'}</b></div></div>${button('Ver campañas', 'campaigns-of:' + ch.id)}</article>`;
+      }).join('')}</div>` : empty('Todavía no hay canales. Crea uno para empezar a armar campañas.', action('+ Nuevo canal', 'channel-new'))) +
       `<section class="gd-panel gd-section"><h2>Cada canal conserva su identidad</h2><div class="gd-details"><div><span>Voz, idioma y marca visual</span><span>Por canal</span></div><div><span>Autorización de YouTube</span><span>Conexión independiente</span></div><div><span>Presupuesto y calendario</span><span>Por campaña</span></div></div></section>` + note;
   }
   function campaignView() {
     const list = selected();
-    return heading('Campañas', 'Define el contenido. Golddigger coordina el proceso.', action('+ Nueva campaña', 'new')) +
+    return heading('Campañas', 'Define el contenido. Golddigger coordina el proceso.', action('+ Nueva campaña', 'new')) + demoBanner() +
       (list.length ? `<div class="gd-grid">${list.map((c) => {
         const ch = channelOf(c);
         const pct = c.budgetMonthly > 0 ? Math.min(100, (metric(c, 'cost') / c.budgetMonthly) * 100) : 0;
@@ -117,6 +122,119 @@
       `<div class="gd-grid two">${providers.map((p, i) => `<article class="gd-card"><div class="gd-cardtop"><h3>${p[0]}</h3>${badge(p[2], i === 3 ? 'wait' : '')}</div><p>${p[1]}</p><div class="gd-details"><small>${p[3]}</small></div>${button(i === 3 ? 'Ver requisito' : 'Configurar', 'provider:' + i)}</article>`).join('')}</div><p class="gd-note">Esta vista no solicita ni almacena credenciales todavía. Las claves se guardarán solo en el servidor cuando se conecte cada proveedor.</p>`;
   }
 
+  // ── Canales y datos de ejemplo ────────────────────────────────────────────
+  function newChannel() {
+    modal(`<div class="gd-panelhead"><div><h2>Nuevo canal</h2><p>Registra el canal para organizar sus campañas. La conexión con YouTube se hará después, desde Conexiones.</p></div>${button('Cerrar', 'close')}</div>
+      <form id="gd-channelform" class="gd-form" novalidate>
+        <label>Nombre del canal<input name="name" maxlength="60" placeholder="Ej. Archivo Infinito" required></label>
+        <label>Nicho<input name="niche" maxlength="120" placeholder="Ej. Historia · Español"></label>
+        <p class="gd-error" role="alert"></p>
+        <div class="wide gd-flex"><button class="gd-action" type="submit">Crear canal</button>${button('Cancelar', 'close')}</div>
+      </form>`);
+    const form = $('#gd-channelform');
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      const f = new FormData(form);
+      if (!String(f.get('name')).trim()) return showFormError(form, { message: 'El nombre del canal es obligatorio.', field: 'name' });
+      submitting(form, async () => {
+        const { channel: ch } = await api.post('/api/channels', { name: f.get('name'), niche: f.get('niche') });
+        gd.channels.push(ch);
+        closeModal();
+        gd.render();
+        notify(`Canal «${ch.name}» creado. Ya puedes crear campañas para él.`);
+      });
+    };
+  }
+  async function clearDemo(btn) {
+    const n = gd.campaigns.filter((c) => c.isDemo).length;
+    if (!confirm(`Se borrarán ${n} campaña(s) de ejemplo con sus flujos, y los canales de ejemplo que queden vacíos. Las campañas que creó el equipo no se tocan.\n\nEsto no se puede deshacer. ¿Continuar?`)) return;
+    btn.disabled = true;
+    try {
+      const { cleared } = await api.post('/api/demo/clear');
+      const [{ channels }, { campaigns }] = await Promise.all([api.get('/api/channels'), api.get('/api/campaigns')]);
+      gd.channels = channels; gd.campaigns = campaigns;
+      channel = 'all';
+      window.dispatchEvent(new CustomEvent('gd:data-reset'));
+      gd.render();
+      savePrefs();
+      notify(`Listo: se borraron ${cleared.campaigns} campaña(s) y ${cleared.channels} canal(es) de ejemplo.` +
+        (cleared.keptChannels ? ` ${cleared.keptChannels} canal(es) se conservaron porque tienen campañas del equipo.` : '') +
+        (gd.channels.length ? '' : ' Crea tu primer canal para empezar.'));
+    } catch (err) { btn.disabled = false; if (err.status !== 401) notify(err.message); }
+  }
+
+  // ── Usuarios ──────────────────────────────────────────────────────────────
+  let team = null; // { users, canManage } · se carga al abrir la pestaña
+  const roleLabel = (r) => (r === 'owner' ? 'Propietario' : 'Editor');
+  const when = (iso) => (iso ? new Date(iso).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' }) : 'Nunca');
+  function usersView() {
+    const head = heading('Usuarios', `Todos trabajan en el mismo panel: «${esc(gd.me.workspace.name)}».`, team?.canManage ? action('+ Agregar usuario', 'user-new') : '');
+    if (!team) { loadTeam(); return head + empty('Cargando usuarios…'); }
+    if (team.error) return head + empty(esc(team.error), button('Reintentar', 'users-reload'));
+    const rows = team.users.map((u) => `<tr><td><div class="gd-titlecell"><div class="gd-mini">${esc(initials(u.name))}</div><div>${esc(u.name)}${u.isMe ? ' <span class="gd-tag">Tú</span>' : ''}<small>${esc(u.email)}</small></div></div></td><td>${u.role === 'owner' ? badge('Propietario', 'red') : badge('Editor', '')}</td><td>${when(u.lastLoginAt)}</td><td>${when(u.createdAt)}</td>${team.canManage ? `<td class="num"><div class="gd-flex" style="justify-content:flex-end">${button(u.role === 'owner' ? 'Hacer editor' : 'Hacer propietario', 'user-role:' + u.id)}${u.isMe ? '' : button('Quitar', 'user-remove:' + u.id)}</div></td>` : ''}</tr>`).join('');
+    const owners = team.users.filter((u) => u.role === 'owner').length;
+    return head + `<div class="gd-stats">${stat('Usuarios', team.users.length, 'En este espacio de trabajo')}${stat('Propietarios', owners, 'Administran usuarios')}${stat('Editores', team.users.length - owners, 'Campañas y flujos')}${stat('Activos en 7 días', team.users.filter((u) => u.lastLoginAt && Date.now() - new Date(u.lastLoginAt) < 7 * 864e5).length, 'Con inicio de sesión reciente', true)}</div>
+      <section class="gd-panel"><div class="gd-panelhead"><h2>Equipo</h2><span class="gd-tag">${team.users.length} ${team.users.length === 1 ? 'persona' : 'personas'}</span></div><div class="gd-tablewrap"><table><thead><tr><th>Usuario</th><th>Rol</th><th>Último acceso</th><th>Alta</th>${team.canManage ? '<th class="num">Acciones</th>' : ''}</tr></thead><tbody>${rows}</tbody></table></div></section>
+      <section class="gd-panel gd-section"><h2>Qué puede hacer cada rol</h2><div class="gd-details"><div><span>Editor</span><span>Ve todo el panel, crea y edita campañas y flujos</span></div><div><span>Propietario</span><span>Lo mismo, y además agrega, quita y cambia el rol de los usuarios</span></div></div></section>` +
+      (team.canManage ? '' : '<div class="gd-note">Solo un propietario puede agregar o quitar usuarios.</div>');
+  }
+  async function loadTeam() {
+    try { team = await api.get('/api/users'); }
+    catch (err) { if (err.status === 401) return; team = { error: err.message }; }
+    if (page === 7) render();
+  }
+  function newUser() {
+    modal(`<div class="gd-panelhead"><div><h2>Agregar usuario</h2><p>Entrará a este mismo panel. Comparte la contraseña por un medio seguro; podrá cambiarla desde su menú.</p></div>${button('Cerrar', 'close')}</div>
+      <form id="gd-userform" class="gd-form" novalidate>
+        <label>Nombre<input name="name" maxlength="80" required></label>
+        <label>Correo<input name="email" type="email" autocomplete="off" required></label>
+        <label>Contraseña inicial<input name="password" type="text" autocomplete="off" minlength="10" value="${esc(suggestPassword())}" required></label>
+        <label>Rol<select name="role"><option value="editor">Editor</option><option value="owner">Propietario</option></select></label>
+        <p class="gd-error" role="alert"></p>
+        <div class="wide gd-flex"><button class="gd-action" type="submit">Agregar usuario</button>${button('Cancelar', 'close')}</div>
+      </form>`);
+    const form = $('#gd-userform');
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      const f = new FormData(form);
+      submitting(form, async () => {
+        const { user } = await api.post('/api/users', { name: f.get('name'), email: f.get('email'), password: f.get('password'), role: f.get('role') });
+        closeModal();
+        team = null;
+        render();
+        notify(`${user.name} ya puede entrar con ${user.email}.`);
+      });
+    };
+  }
+  function suggestPassword() {
+    const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+    const bytes = crypto.getRandomValues(new Uint8Array(14));
+    return Array.from(bytes, (b) => abc[b % abc.length]).join('');
+  }
+  async function changeRole(id, btn) {
+    const u = team?.users.find((x) => x.id === id);
+    if (!u) return;
+    btn.disabled = true;
+    try {
+      const { user } = await api.patch(`/api/users/${id}`, { role: u.role === 'owner' ? 'editor' : 'owner' });
+      if (user.isMe) gd.me.workspace.role = user.role;
+      team = null;
+      render();
+      notify(`${user.name} ahora es ${roleLabel(user.role).toLowerCase()}.`);
+    } catch (err) { btn.disabled = false; if (err.status !== 401) notify(err.message); }
+  }
+  async function removeUser(id, btn) {
+    const u = team?.users.find((x) => x.id === id);
+    if (!u || !confirm(`¿Quitar a ${u.name} (${u.email})? Ya no podrá entrar al panel.`)) return;
+    btn.disabled = true;
+    try {
+      await api.del(`/api/users/${id}`);
+      team = null;
+      render();
+      notify(`${u.name} ya no tiene acceso.`);
+    } catch (err) { btn.disabled = false; if (err.status !== 401) notify(err.message); }
+  }
+
   function renderChrome() {
     const sel = $('#gd-channel');
     sel.innerHTML = `<option value="all">Todos los canales</option>${gd.channels.map((ch) => `<option value="${ch.id}">${esc(ch.name)}</option>`).join('')}`;
@@ -133,10 +251,16 @@
   function render() {
     nav.innerHTML = names.map((n, i) => `<button type="button" class="${page === i ? 'active' : ''}" data-page="${i}" ${page === i ? 'aria-current="page"' : ''}>${n}</button>`).join('');
     $('#gd-crumb').textContent = gd.me.workspace.name + ' / ' + names[page];
-    content.innerHTML = [overview, channels, campaignView, production, calendar, results, connections][page]();
+    $('#gd-channel').closest('label').hidden = page === 7;
+    content.innerHTML = [overview, channels, campaignView, production, calendar, results, connections, usersView][page]();
   }
   gd.render = () => { renderChrome(); render(); };
-  function go(p) { page = p; closeModal(); render(); savePrefs(); }
+  function go(p) {
+    if (p === 7) team = null;
+    page = p; closeModal(); render(); savePrefs();
+    // Comprobación ligera: si quitaron al usuario o cerró sesión en otro lado, vuelve a la pantalla de acceso.
+    api.get('/api/auth/me').then((me) => { if (me.workspace.role !== gd.me?.workspace.role) { gd.me = me; render(); } }).catch(() => {});
+  }
   function savePrefs() { prefs?.set({ page, channel }); }
 
   // ── Modales ───────────────────────────────────────────────────────────────
@@ -167,7 +291,7 @@
     const cat = gd.catalog.campaign;
     const c = id ? gd.campaigns.find((x) => x.id === id) : null;
     if (id && !c) return notify('No se encontró la campaña.');
-    if (!gd.channels.length) return notify('Primero necesitas un canal.');
+    if (!gd.channels.length) { notify('Primero crea un canal para la campaña.'); return newChannel(); }
     const preset = c || { channelId: channel !== 'all' ? Number(channel) : gd.channels[0].id, format: cat.formats[0], days: cat.days[0], time: '18:00', budgetMonthly: 100, maxPerPiece: 12, scriptTool: cat.scriptTools[0], clipsTool: cat.clipsTools[0], instructions: 'Narración original, fuentes verificables, ritmo ágil y un gancho inicial claro.', autoPublish: false, niche: '', references: '', name: '' };
     modal(`<div class="gd-panelhead"><div><h2>${c ? 'Configurar campaña' : 'Nueva campaña'}</h2><p>${c ? 'Los cambios se guardan en el servidor.' : 'Se crea con el flujo de producción predeterminado; puedes ajustarlo después.'}</p></div>${button('Cerrar', 'close')}</div>
       <form id="gd-campaignform" class="gd-form" novalidate>
@@ -270,6 +394,12 @@
     else if (a.startsWith('toggle:')) toggleCampaign(+a.split(':')[1], b);
     else if (a === 'close') closeModal();
     else if (a === 'logout') logout();
+    else if (a === 'user-new') newUser();
+    else if (a === 'channel-new') newChannel();
+    else if (a === 'demo-clear') clearDemo(b);
+    else if (a === 'users-reload') { team = null; render(); }
+    else if (a.startsWith('user-role:')) changeRole(+a.split(':')[1], b);
+    else if (a.startsWith('user-remove:')) removeUser(+a.split(':')[1], b);
     else if (a === 'password') { setMenu(false); changePassword(); }
     else if (a.startsWith('campaigns-of:')) { channel = a.split(':')[1]; renderChrome(); go(2); }
     else if (['production', 'calendar', 'campaigns', 'connect'].includes(a)) go({ production: 3, calendar: 4, campaigns: 2, connect: 6 }[a]);
@@ -328,7 +458,7 @@
   async function logout() {
     if (gd.hasUnsavedChanges?.() && !confirm('Tienes cambios sin guardar en un flujo. ¿Cerrar sesión de todos modos?')) return;
     try { await api.post('/api/auth/logout'); } catch { /* la cookie se limpia igual */ }
-    gd.me = null; gd.campaigns = []; gd.channels = [];
+    gd.me = null; gd.campaigns = []; gd.channels = []; team = null;
     window.dispatchEvent(new CustomEvent('gd:logout'));
     showLogin();
   }

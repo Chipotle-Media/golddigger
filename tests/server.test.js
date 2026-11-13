@@ -19,7 +19,7 @@ test('entrega la app y sus archivos, y protege archivos privados', async (t) => 
   for (const asset of ['state.js', 'api.js', 'app.js', 'flow-editor.js', 'styles.css', 'catalog.json', 'favicon.svg']) {
     assert.equal((await fetch(`${base}/assets/${asset}`)).status, 200, asset);
   }
-  for (const resource of ['/.env', '/server/index.js', '/package.json', '/assets/%2e%2e%2f%2e%2e%2f.env', '/server/migrations/001_inicial.sql']) {
+  for (const resource of ['/.env', '/server/index.js', '/package.json', '/assets/%2e%2e%2f%2e%2e%2f.env', '/server/migrations/001_inicial.sql', '/server/migrations/002_datos_ejemplo.sql']) {
     assert.ok([400, 403, 404].includes((await fetch(base + resource)).status), resource);
   }
   const first = await fetch(`${base}/assets/app.js`);
@@ -172,6 +172,127 @@ for (const [label, makeStore] of stores) {
     // Cerrar sesión
     assert.equal((await call('POST', '/api/auth/logout', {})).status, 200);
     assert.equal((await call('GET', '/api/auth/me')).status, 401);
+  });
+}
+
+for (const [label, makeStore] of stores) {
+  test(`usuarios (${label}): lista, alta, roles y bajas en el mismo panel`, async (t) => {
+    const store = await makeStore();
+    t.after(() => store.close());
+    const { hashPassword } = await import('../server/auth.js');
+    await store.createUser({ email: 'duena@example.com', name: 'Dueña', passwordHash: await hashPassword('contrasena-segura'), workspaceName: 'Panel' });
+    const base = await listen(t, { store });
+    const session = () => {
+      let cookie = '';
+      return async (method, path, body) => {
+        const res = await fetch(base + path, { method, headers: { ...(cookie ? { Cookie: cookie } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, body: body !== undefined ? JSON.stringify(body) : undefined });
+        const sc = res.headers.get('set-cookie'); if (sc) cookie = sc.split(';')[0];
+        return { status: res.status, data: await res.json().catch(() => null) };
+      };
+    };
+    const owner = session();
+    await owner('POST', '/api/auth/login', { email: 'duena@example.com', password: 'contrasena-segura' });
+    let list = (await owner('GET', '/api/users')).data;
+    assert.equal(list.canManage, true);
+    assert.equal(list.users.length, 1);
+    assert.equal(list.users[0].isMe, true);
+    assert.equal(list.users[0].role, 'owner');
+    assert.ok(list.users[0].lastLoginAt);
+    assert.equal(list.users[0].passwordHash, undefined);
+
+    // Alta
+    assert.equal((await owner('POST', '/api/users', { email: 'malo', name: 'X', password: 'contrasena-segura' })).status, 400);
+    assert.equal((await owner('POST', '/api/users', { email: 'ed@example.com', name: 'Ed', password: 'corta' })).status, 400);
+    const add = await owner('POST', '/api/users', { email: 'Ed@Example.com', name: 'Ed', password: 'contrasena-del-editor' });
+    assert.equal(add.status, 201);
+    assert.equal(add.data.user.role, 'editor');
+    assert.equal(add.data.user.email, 'ed@example.com');
+    assert.equal((await owner('POST', '/api/users', { email: 'ed@example.com', name: 'Ed 2', password: 'contrasena-del-editor' })).status, 409);
+    const edId = add.data.user.id;
+
+    // El editor entra al mismo panel, ve a todos, pero no administra
+    const editor = session();
+    const login = await editor('POST', '/api/auth/login', { email: 'ed@example.com', password: 'contrasena-del-editor' });
+    assert.equal(login.data.workspace.name, 'Panel');
+    assert.equal(login.data.workspace.role, 'editor');
+    const edList = (await editor('GET', '/api/users')).data;
+    assert.equal(edList.canManage, false);
+    assert.equal(edList.users.length, 2);
+    assert.equal((await editor('GET', '/api/campaigns')).data.campaigns.length, 3);
+    assert.equal((await editor('POST', '/api/users', { email: 'z@example.com', name: 'Z', password: 'contrasena-segura' })).status, 403);
+    assert.equal((await editor('PATCH', `/api/users/${edId}`, { role: 'owner' })).status, 403);
+    assert.equal((await editor('DELETE', `/api/users/${list.users[0].id}`)).status, 403);
+
+    // Roles: el último propietario no puede dejar de serlo
+    const ownerId = list.users[0].id;
+    assert.equal((await owner('PATCH', `/api/users/${ownerId}`, { role: 'editor' })).status, 409);
+    assert.equal((await owner('PATCH', `/api/users/${edId}`, { role: 'jefe' })).status, 400);
+    assert.equal((await owner('PATCH', `/api/users/${edId}`, { role: 'owner' })).data.user.role, 'owner');
+    assert.equal((await editor('GET', '/api/users')).data.canManage, true); // el cambio aplica a su sesión al momento
+    assert.equal((await owner('PATCH', `/api/users/${edId}`, { role: 'editor' })).data.user.role, 'editor');
+
+    // Bajas
+    assert.equal((await owner('DELETE', `/api/users/${ownerId}`)).status, 400);
+    assert.equal((await owner('DELETE', '/api/users/99999')).status, 404);
+    assert.equal((await owner('DELETE', `/api/users/${edId}`)).status, 200);
+    assert.equal((await editor('GET', '/api/auth/me')).status, 401);
+    assert.equal((await editor('POST', '/api/auth/login', { email: 'ed@example.com', password: 'contrasena-del-editor' })).status, 401);
+    list = (await owner('GET', '/api/users')).data;
+    assert.equal(list.users.length, 1);
+    // Se puede volver a dar de alta el mismo correo
+    assert.equal((await owner('POST', '/api/users', { email: 'ed@example.com', name: 'Ed', password: 'contrasena-del-editor' })).status, 201);
+  });
+}
+
+for (const [label, makeStore] of stores) {
+  test(`datos de ejemplo (${label}): crear canal y limpiar sin tocar lo del equipo`, async (t) => {
+    const store = await makeStore();
+    t.after(() => store.close());
+    const { hashPassword } = await import('../server/auth.js');
+    await store.createUser({ email: 'duena@example.com', name: 'Dueña', passwordHash: await hashPassword('contrasena-segura') });
+    const base = await listen(t, { store });
+    let cookie = '';
+    const call = async (method, path, body) => {
+      const res = await fetch(base + path, { method, headers: { ...(cookie ? { Cookie: cookie } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, body: body !== undefined ? JSON.stringify(body) : undefined });
+      const sc = res.headers.get('set-cookie'); if (sc) cookie = sc.split(';')[0];
+      return { status: res.status, data: await res.json().catch(() => null) };
+    };
+    await call('POST', '/api/auth/login', { email: 'duena@example.com', password: 'contrasena-segura' });
+    const demoChannels = (await call('GET', '/api/channels')).data.channels;
+    assert.ok(demoChannels.every((c) => c.isDemo));
+    assert.ok((await call('GET', '/api/campaigns')).data.campaigns.every((c) => c.isDemo));
+
+    // Canal propio
+    assert.equal((await call('POST', '/api/channels', { name: '  ' })).status, 400);
+    const own = await call('POST', '/api/channels', { name: 'Mi Canal Nuevo', niche: 'Viajes' });
+    assert.equal(own.status, 201);
+    assert.equal(own.data.channel.mark, 'MC');
+    assert.equal(own.data.channel.isDemo, false);
+
+    // Campaña del equipo en un canal propio y otra en un canal de ejemplo
+    const c1 = (await call('POST', '/api/campaigns', { name: 'Propia', channelId: own.data.channel.id })).data.campaign;
+    const c2 = (await call('POST', '/api/campaigns', { name: 'En canal de ejemplo', channelId: demoChannels[0].id })).data.campaign;
+    assert.equal(c1.isDemo, false);
+    await call('PUT', `/api/campaigns/${c2.id}/workflow`, { nodes: (await call('GET', `/api/campaigns/${c2.id}/workflow`)).data.workflow.nodes, baseVersion: 0 });
+
+    // Un editor no puede limpiar
+    await store.createUser({ email: 'ed@example.com', name: 'Ed', passwordHash: await hashPassword('contrasena-segura'), joinWorkspaceId: (await store.listWorkspaces())[0].id });
+    const ownerCookie = cookie; cookie = '';
+    await call('POST', '/api/auth/login', { email: 'ed@example.com', password: 'contrasena-segura' });
+    assert.equal((await call('POST', '/api/demo/clear', {})).status, 403);
+    cookie = ownerCookie;
+
+    const cleared = (await call('POST', '/api/demo/clear', {})).data.cleared;
+    assert.deepEqual(cleared, { campaigns: 3, channels: 2, keptChannels: 1 });
+    const campaigns = (await call('GET', '/api/campaigns')).data.campaigns;
+    assert.deepEqual(campaigns.map((c) => c.name).sort(), ['En canal de ejemplo', 'Propia']);
+    assert.equal(campaigns.find((c) => c.id === c2.id).workflowVersion, 1);
+    const channels = (await call('GET', '/api/channels')).data.channels;
+    assert.equal(channels.length, 2);
+    assert.ok(channels.every((c) => !c.isDemo));
+    assert.deepEqual(channels.find((c) => c.id === demoChannels[0].id).metrics, {});
+    // Repetir no hace nada
+    assert.deepEqual((await call('POST', '/api/demo/clear', {})).data.cleared, { campaigns: 0, channels: 0, keptChannels: 0 });
   });
 }
 
