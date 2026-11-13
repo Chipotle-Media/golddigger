@@ -1,0 +1,14 @@
+{
+  "name": "golddigger-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Panel web y editor visual de producción de video. Base de desarrollo con datos de demostración.",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch-path=server server/index.js",
+    "test": "node --test",
+    "check": "node --check server/index.js && node --check public/assets/state.js && node --check public/assets/app.js && node --check public/assets/flow-editor.js"
+  }
+}

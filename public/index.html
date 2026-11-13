@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0f0f0f">
+<meta name="description" content="Golddigger: panel de canales, campañas y flujos de producción de video.">
+<title>Golddigger Studio</title>
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/styles.css">
+<script defer src="/assets/state.js"></script>
+<script defer src="/assets/app.js"></script>
+<script defer src="/assets/flow-editor.js"></script>
+</head>
+<body>
+<div id="golddigger" aria-label="Golddigger · Prototipo interactivo">
+ <header class="gd-top"><div class="gd-brand">Golddigger <span class="gd-studio">STUDIO</span></div><span class="gd-demo">Vista previa · datos de ejemplo</span><div class="gd-avatar">CM</div></header>
+ <div class="gd-shell"><aside><div class="gd-workspace"><span class="gd-avatar">G</span><div>Tu espacio de trabajo<small>3 canales · 3 campañas</small></div></div><nav aria-label="Secciones"></nav><div class="gd-sidebottom"><span class="gd-dot"></span> Automatización activa<small>Próxima publicación · 18:00</small></div></aside><main><div class="gd-context"><span id="gd-crumb">Workspace / Resumen</span><label>Canal <select id="gd-channel"><option value="all">Todos los canales</option><option value="0">Archivo Infinito</option><option value="1">Mente en Foco</option><option value="2">Órbita Tech</option></select></label></div><div id="gd-content"></div></main></div><div id="gd-notice" role="status" aria-live="polite"></div><div id="gd-modal" hidden></div>
+</div>
+<noscript>Activa JavaScript para utilizar Golddigger.</noscript>
+</body>
+</html>
