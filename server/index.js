@@ -9,6 +9,9 @@ import { createApi } from './api.js';
 const publicDir = path.resolve(fileURLToPath(new URL('../public/', import.meta.url)));
 const assetsDir = path.join(publicDir, 'assets');
 const indexFile = path.join(publicDir, 'index.html');
+// Páginas públicas (sin sesión): las exige Google para la pantalla de consentimiento OAuth.
+const legalPages = { '/privacidad': 'privacidad.html', '/privacy': 'privacidad.html', '/terminos': 'terminos.html', '/terms': 'terminos.html',
+  '/assets/legal.css': 'assets/legal.css', '/assets/favicon.svg': 'assets/favicon.svg' };
 const types = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp',
@@ -55,6 +58,14 @@ export function createServer(options = {}) {
         try { await store.health(); } catch { database = 'error'; }
       }
       return json(database === 'error' ? 503 : 200, { status: database === 'error' ? 'degraded' : 'ok', app: 'golddigger', database, version, startedAt });
+    }
+
+    if (legalPages[pathname] && ['GET', 'HEAD'].includes(req.method)) {
+      try {
+        const bytes = await readFile(path.join(publicDir, legalPages[pathname]));
+        res.writeHead(200, { 'Content-Type': types[path.extname(legalPages[pathname])], 'Content-Length': bytes.length, 'Cache-Control': 'no-cache' });
+        return res.end(req.method === 'HEAD' ? undefined : bytes);
+      } catch { return json(404, { error: 'not_found' }); }
     }
 
     if (auth) {
@@ -139,7 +150,10 @@ async function main() {
     const syncAll = async () => {
       for (const w of await store.listWorkspaces().catch(() => [])) {
         for (const ch of (await store.listChannels(w.id)).filter((c) => c.connected)) {
-          await server.connections.syncChannel(w.id, ch.id).catch((e) => console.error('Sincronización de YouTube:', e.message));
+          const fresh = await server.connections.syncChannel(w.id, ch.id).catch((e) => { console.error('Sincronización de YouTube:', e.message); return null; });
+          // Política de YouTube: no conservar datos de la API más de 30 días sin renovarlos.
+          const last = (fresh || ch).lastSyncedAt;
+          if (!last || Date.now() - new Date(last) > 30 * 864e5) await store.updateChannelSync(w.id, ch.id, { metrics: {}, lastError: (fresh || ch).lastError || 'Sin actualizar por más de 30 días; se borraron sus estadísticas.' });
         }
       }
     };

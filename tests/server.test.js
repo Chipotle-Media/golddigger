@@ -26,6 +26,19 @@ test('entrega la app y sus archivos, y protege archivos privados', async (t) => 
   assert.equal((await fetch(`${base}/assets/app.js`, { headers: { 'If-None-Match': first.headers.get('etag') } })).status, 304);
 });
 
+test('páginas legales públicas para Google', async (t) => {
+  const base = await listen(t, { store: null, auth: { user: 'admin', pass: 's3cret' } });
+  for (const [path, title, must] of [['/privacidad', 'Política de Privacidad', ['security.google.com/settings/security/permissions', 'google.com/policies/privacy', 'API de YouTube', 'contacto@golddigger.click']], ['/terminos', 'Condiciones del Servicio', ['youtube.com/t/terms', '/privacidad']]]) {
+    const res = await fetch(base + path);
+    assert.equal(res.status, 200, path);
+    const html = await res.text();
+    assert.match(html, new RegExp(title));
+    for (const m of must) assert.ok(html.includes(m), `${path} incluye ${m}`);
+  }
+  assert.equal((await fetch(base + '/privacy')).status, 200);
+  assert.equal((await fetch(base + '/assets/legal.css')).status, 200);
+});
+
 test('sin base de datos configurada: health lo indica y la API responde 503', async (t) => {
   const base = await listen(t, { store: null });
   const health = await (await fetch(`${base}/api/health`)).json();
