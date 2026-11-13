@@ -10,8 +10,8 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch-path=server server/index.js",
-    "test": "node --test",
-    "check": "node --check server/index.js && node --check public/assets/state.js && node --check public/assets/app.js && node --check public/assets/flow-editor.js && node --check public/assets/api.js && node --check server/api.js && node --check server/cli.js"
+    "test": "node --test --test-concurrency=1",
+    "check": "for f in server/*.js server/store/*.js public/assets/*.js; do node --check \"$f\" || exit 1; done"
   },
   "dependencies": {
     "pg": "^8.23.1"

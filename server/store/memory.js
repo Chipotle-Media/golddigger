@@ -9,9 +9,17 @@ export function createMemoryStore() {
   let seq = 0;
   const id = () => ++seq;
   const now = () => new Date().toISOString();
-  const db = { users: [], workspaces: [], memberships: [], sessions: new Map(), channels: [], campaigns: [], workflows: [] };
+  const db = { users: [], workspaces: [], memberships: [], sessions: new Map(), channels: [], campaigns: [], workflows: [], integrations: [] };
   const clone = (x) => structuredClone(x);
   const publicUser = (u) => ({ id: u.id, email: u.email, name: u.name });
+  const channelOut = (c) => {
+    const { workspaceId, oauthEnc, ...rest } = c;
+    return clone({ externalId: null, handle: null, thumbnailUrl: null, connectedAt: null, lastSyncedAt: null, lastError: null, ...rest, connected: Boolean(oauthEnc) });
+  };
+  const integrationOut = (i) => {
+    const { workspaceId, secretEnc, updatedById, ...rest } = i;
+    return clone({ ...rest, updatedBy: db.users.find((u) => u.id === updatedById)?.name || null });
+  };
   const campaignOut = (c) => {
     const versions = db.workflows.filter((w) => w.campaignId === c.id);
     const { workspaceId, ...rest } = c;
@@ -110,14 +118,13 @@ export function createMemoryStore() {
     async deleteSession(tokenHash) { db.sessions.delete(tokenHash); },
     async purgeExpiredSessions() { for (const [k, s] of db.sessions) if (new Date(s.expiresAt) <= new Date()) db.sessions.delete(k); },
 
-    async listChannels(ws) { return db.channels.filter((c) => c.workspaceId === ws).map(({ workspaceId, ...c }) => clone(c)); },
-    async getChannel(ws, chId) { const c = db.channels.find((x) => x.workspaceId === ws && x.id === chId); if (!c) return null; const { workspaceId, ...rest } = c; return clone(rest); },
+    async listChannels(ws) { return db.channels.filter((c) => c.workspaceId === ws).map(channelOut); },
+    async getChannel(ws, chId) { const c = db.channels.find((x) => x.workspaceId === ws && x.id === chId); return c ? channelOut(c) : null; },
 
     async createChannel(ws, { name, niche, mark, theme }) {
       const row = { id: id(), workspaceId: ws, name, niche, mark, theme, provider: 'youtube', isDemo: false, metrics: {}, createdAt: now() };
       db.channels.push(row);
-      const { workspaceId, ...rest } = row;
-      return clone(rest);
+      return channelOut(row);
     },
     async clearDemoData(ws) {
       const demoCamps = db.campaigns.filter((c) => c.workspaceId === ws && c.isDemo).map((c) => c.id);
@@ -128,6 +135,60 @@ export function createMemoryStore() {
       let keptChannels = 0;
       for (const ch of db.channels) if (ch.workspaceId === ws && ch.isDemo) { ch.isDemo = false; ch.metrics = {}; keptChannels++; }
       return { campaigns: demoCamps.length, channels: before - db.channels.length, keptChannels };
+    },
+
+    async listIntegrations(ws) { return db.integrations.filter((i) => i.workspaceId === ws).map(integrationOut).sort((a, b) => a.provider.localeCompare(b.provider)); },
+    async getIntegration(ws, provider) { const i = db.integrations.find((x) => x.workspaceId === ws && x.provider === provider); return i ? { ...integrationOut(i), secretEnc: i.secretEnc } : null; },
+    async saveIntegration(ws, provider, { config = {}, secretEnc, secretHint, status = 'connected', lastError = null, accountLabel = null, userId }) {
+      let i = db.integrations.find((x) => x.workspaceId === ws && x.provider === provider);
+      if (!i) { i = { workspaceId: ws, provider }; db.integrations.push(i); }
+      Object.assign(i, { config: clone(config), status, lastError, accountLabel, updatedById: userId || null, lastCheckedAt: now(), updatedAt: now() });
+      if (secretEnc) { i.secretEnc = secretEnc; i.secretHint = secretHint; }
+      return integrationOut(i);
+    },
+    async markIntegration(ws, provider, { status, lastError = null, accountLabel }) {
+      const i = db.integrations.find((x) => x.workspaceId === ws && x.provider === provider);
+      if (!i) return null;
+      Object.assign(i, { status, lastError, lastCheckedAt: now() });
+      if (accountLabel) i.accountLabel = accountLabel;
+      return integrationOut(i);
+    },
+    async deleteIntegration(ws, provider) {
+      const n = db.integrations.length;
+      db.integrations = db.integrations.filter((x) => !(x.workspaceId === ws && x.provider === provider));
+      return db.integrations.length < n;
+    },
+    async connectChannel(ws, { channelId, externalId, name, handle, thumbnailUrl, metrics, oauthEnc, userId }) {
+      const byExternal = db.channels.find((c) => c.workspaceId === ws && c.provider === 'youtube' && c.externalId === externalId);
+      let ch;
+      if (channelId) {
+        ch = db.channels.find((c) => c.workspaceId === ws && c.id === channelId);
+        if (!ch) throw new NotFoundError('Canal no encontrado.');
+        if (byExternal && byExternal.id !== channelId) throw new ConflictError(`Ese canal de YouTube ya está conectado como «${byExternal.name}».`);
+      } else ch = byExternal;
+      if (!ch) {
+        ch = { id: id(), workspaceId: ws, niche: '', theme: '', provider: 'youtube', isDemo: false, createdAt: now(), name,
+          mark: name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || 'YT' };
+        db.channels.push(ch);
+      } else if (ch.isDemo || ch.externalId) ch.name = name;
+      Object.assign(ch, { externalId, handle, thumbnailUrl, metrics: clone(metrics), oauthEnc, connectedAt: now(), connectedBy: userId, lastSyncedAt: now(), lastError: null, isDemo: false });
+      return channelOut(ch);
+    },
+    async getChannelOAuth(ws, chId) { const c = db.channels.find((x) => x.workspaceId === ws && x.id === chId); return c ? { oauthEnc: c.oauthEnc || null, externalId: c.externalId || null } : null; },
+    async updateChannelSync(ws, chId, { name, handle, thumbnailUrl, metrics, lastError = null, oauthEnc }) {
+      const c = db.channels.find((x) => x.workspaceId === ws && x.id === chId);
+      if (!c) return null;
+      if (name) c.name = name; if (handle) c.handle = handle; if (thumbnailUrl) c.thumbnailUrl = thumbnailUrl;
+      if (metrics) c.metrics = clone(metrics); if (oauthEnc) c.oauthEnc = oauthEnc;
+      c.lastError = lastError;
+      if (!lastError) c.lastSyncedAt = now();
+      return channelOut(c);
+    },
+    async disconnectChannel(ws, chId) {
+      const c = db.channels.find((x) => x.workspaceId === ws && x.id === chId);
+      if (!c) return null;
+      Object.assign(c, { oauthEnc: null, externalId: null, connectedAt: null, connectedBy: null, lastError: null, metrics: {} });
+      return channelOut(c);
     },
 
     async listCampaigns(ws) { return db.campaigns.filter((c) => c.workspaceId === ws).map(campaignOut); },

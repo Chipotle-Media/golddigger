@@ -1,40 +1,329 @@
 {
   "processes": {
-    "Investigación": { "tools": ["OpenAI", "Claude", "Manual"], "output": "Fuentes y propuesta editorial", "prompt": "Contrastar fuentes. Detectar oportunidades sin copiar guiones ni recursos ajenos." },
-    "Guion": { "tools": ["Claude", "OpenAI", "Manual"], "output": "Guion y lista de escenas", "prompt": "Video de 6–8 minutos en español. Gancho en los primeros 10 segundos y cierre con una pregunta." },
-    "Revisión": { "tools": ["OpenAI", "Claude", "Manual"], "output": "Guion validado", "prompt": "Revisar hechos, coherencia, originalidad y adecuación al público. Detener si faltan fuentes." },
-    "Narración": { "tools": ["OpenAI Audio", "Proveedor de voz", "Manual"], "output": "Archivo WAV y marcas de tiempo", "prompt": "Voz cálida en español, ritmo natural, sin música de fondo." },
-    "Escenas": { "tools": ["Google Veo (API)", "OpenAI Imágenes", "Biblioteca de clips", "Manual"], "output": "Clips o imágenes por escena", "prompt": "Formato 16:9, coherencia visual y recursos originales o con licencia." },
-    "Música": { "tools": ["Biblioteca musical", "Suno (acceso por validar)", "Manual"], "output": "Pista instrumental con licencia", "prompt": "Instrumental sutil, sin letra. Conservar licencia y créditos." },
-    "Montaje": { "tools": ["Motor de montaje", "Manual"], "output": "Video MP4 y subtítulos", "prompt": "1080p, 30 fps. Mezclar voz y música, sincronizar subtítulos y evitar silencios largos." },
-    "Miniatura": { "tools": ["OpenAI Imágenes", "Manual"], "output": "Imagen de miniatura", "prompt": "Composición legible, máximo 4 palabras y sin promesas engañosas." },
-    "Metadatos": { "tools": ["OpenAI", "Claude", "Manual"], "output": "Título, descripción y categoría", "prompt": "Título fiel al video. Añadir fuentes, créditos, categoría y capítulos cuando apliquen." },
-    "Control de calidad": { "tools": ["Reglas de Golddigger", "OpenAI", "Manual"], "output": "Paquete de publicación revisado", "prompt": "Comprobar audio, imagen, subtítulos, licencias, miniatura y correspondencia con el título." },
-    "Publicación": { "tools": ["YouTube API", "Manual"], "output": "Video cargado y programado", "prompt": "Subir como privado, verificar procesamiento y programar según el calendario de la campaña." },
-    "Medición": { "tools": ["YouTube Analytics", "Manual"], "output": "Reporte de rendimiento", "prompt": "Consultar resultados a las 24 horas, 7 y 28 días; separar ingresos estimados de costos." },
-    "Personalizado": { "tools": ["OpenAI", "Claude", "Manual", "Conector propio (por configurar)"], "output": "Resultado del proceso", "prompt": "Define lo que debe recibir, realizar y entregar este paso." }
+    "Investigación": {
+      "tools": [
+        "OpenAI",
+        "Claude",
+        "Manual"
+      ],
+      "output": "Fuentes y propuesta editorial",
+      "prompt": "Contrastar fuentes. Detectar oportunidades sin copiar guiones ni recursos ajenos."
+    },
+    "Guion": {
+      "tools": [
+        "Claude",
+        "OpenAI",
+        "Manual"
+      ],
+      "output": "Guion y lista de escenas",
+      "prompt": "Video de 6–8 minutos en español. Gancho en los primeros 10 segundos y cierre con una pregunta."
+    },
+    "Revisión": {
+      "tools": [
+        "OpenAI",
+        "Claude",
+        "Manual"
+      ],
+      "output": "Guion validado",
+      "prompt": "Revisar hechos, coherencia, originalidad y adecuación al público. Detener si faltan fuentes."
+    },
+    "Narración": {
+      "tools": [
+        "OpenAI Audio",
+        "ElevenLabs",
+        "Proveedor de voz",
+        "Manual"
+      ],
+      "output": "Archivo WAV y marcas de tiempo",
+      "prompt": "Voz cálida en español, ritmo natural, sin música de fondo."
+    },
+    "Escenas": {
+      "tools": [
+        "Google Veo (API)",
+        "OpenAI Imágenes",
+        "Biblioteca de clips",
+        "Manual"
+      ],
+      "output": "Clips o imágenes por escena",
+      "prompt": "Formato 16:9, coherencia visual y recursos originales o con licencia."
+    },
+    "Música": {
+      "tools": [
+        "Biblioteca musical",
+        "ElevenLabs Music",
+        "Suno (acceso por validar)",
+        "Manual"
+      ],
+      "output": "Pista instrumental con licencia",
+      "prompt": "Instrumental sutil, sin letra. Conservar licencia y créditos."
+    },
+    "Montaje": {
+      "tools": [
+        "Motor de montaje",
+        "Manual"
+      ],
+      "output": "Video MP4 y subtítulos",
+      "prompt": "1080p, 30 fps. Mezclar voz y música, sincronizar subtítulos y evitar silencios largos."
+    },
+    "Miniatura": {
+      "tools": [
+        "OpenAI Imágenes",
+        "Manual"
+      ],
+      "output": "Imagen de miniatura",
+      "prompt": "Composición legible, máximo 4 palabras y sin promesas engañosas."
+    },
+    "Metadatos": {
+      "tools": [
+        "OpenAI",
+        "Claude",
+        "Manual"
+      ],
+      "output": "Título, descripción y categoría",
+      "prompt": "Título fiel al video. Añadir fuentes, créditos, categoría y capítulos cuando apliquen."
+    },
+    "Control de calidad": {
+      "tools": [
+        "Reglas de Golddigger",
+        "OpenAI",
+        "Manual"
+      ],
+      "output": "Paquete de publicación revisado",
+      "prompt": "Comprobar audio, imagen, subtítulos, licencias, miniatura y correspondencia con el título."
+    },
+    "Publicación": {
+      "tools": [
+        "YouTube API",
+        "Manual"
+      ],
+      "output": "Video cargado y programado",
+      "prompt": "Subir como privado, verificar procesamiento y programar según el calendario de la campaña."
+    },
+    "Medición": {
+      "tools": [
+        "YouTube Analytics",
+        "Manual"
+      ],
+      "output": "Reporte de rendimiento",
+      "prompt": "Consultar resultados a las 24 horas, 7 y 28 días; separar ingresos estimados de costos."
+    },
+    "Personalizado": {
+      "tools": [
+        "OpenAI",
+        "Claude",
+        "Manual",
+        "Conector propio (por configurar)"
+      ],
+      "output": "Resultado del proceso",
+      "prompt": "Define lo que debe recibir, realizar y entregar este paso."
+    }
   },
   "defaultFlow": [
-    ["research", "Investigación", []],
-    ["script", "Guion", ["research"]],
-    ["review", "Revisión", ["script"]],
-    ["voice", "Narración", ["review"]],
-    ["scenes", "Escenas", ["review"]],
-    ["music", "Música", ["review"]],
-    ["edit", "Montaje", ["voice", "scenes", "music"]],
-    ["thumb", "Miniatura", ["review"]],
-    ["meta", "Metadatos", ["review"]],
-    ["qc", "Control de calidad", ["edit", "thumb", "meta"]],
-    ["publish", "Publicación", ["qc"]],
-    ["measure", "Medición", ["publish"]]
+    [
+      "research",
+      "Investigación",
+      []
+    ],
+    [
+      "script",
+      "Guion",
+      [
+        "research"
+      ]
+    ],
+    [
+      "review",
+      "Revisión",
+      [
+        "script"
+      ]
+    ],
+    [
+      "voice",
+      "Narración",
+      [
+        "review"
+      ]
+    ],
+    [
+      "scenes",
+      "Escenas",
+      [
+        "review"
+      ]
+    ],
+    [
+      "music",
+      "Música",
+      [
+        "review"
+      ]
+    ],
+    [
+      "edit",
+      "Montaje",
+      [
+        "voice",
+        "scenes",
+        "music"
+      ]
+    ],
+    [
+      "thumb",
+      "Miniatura",
+      [
+        "review"
+      ]
+    ],
+    [
+      "meta",
+      "Metadatos",
+      [
+        "review"
+      ]
+    ],
+    [
+      "qc",
+      "Control de calidad",
+      [
+        "edit",
+        "thumb",
+        "meta"
+      ]
+    ],
+    [
+      "publish",
+      "Publicación",
+      [
+        "qc"
+      ]
+    ],
+    [
+      "measure",
+      "Medición",
+      [
+        "publish"
+      ]
+    ]
   ],
-  "onFail": ["Detener y avisar", "Reintentar y detener", "Solicitar revisión manual"],
-  "limits": { "maxNodes": 24, "maxExtras": 8 },
+  "onFail": [
+    "Detener y avisar",
+    "Reintentar y detener",
+    "Solicitar revisión manual"
+  ],
+  "limits": {
+    "maxNodes": 24,
+    "maxExtras": 8
+  },
   "campaign": {
-    "formats": ["Video largo · 16:9 · 6–8 min", "Short · 9:16 · 45–60 s"],
-    "days": ["Lunes, miércoles y viernes", "Todos los días", "Lunes a viernes", "Una vez por semana"],
-    "scriptTools": ["Claude", "OpenAI"],
-    "clipsTools": ["Google Veo", "Recursos de biblioteca"],
-    "statuses": ["active", "paused"]
-  }
+    "formats": [
+      "Video largo · 16:9 · 6–8 min",
+      "Short · 9:16 · 45–60 s"
+    ],
+    "days": [
+      "Lunes, miércoles y viernes",
+      "Todos los días",
+      "Lunes a viernes",
+      "Una vez por semana"
+    ],
+    "scriptTools": [
+      "Claude",
+      "OpenAI"
+    ],
+    "clipsTools": [
+      "Google Veo",
+      "Recursos de biblioteca"
+    ],
+    "statuses": [
+      "active",
+      "paused"
+    ]
+  },
+  "providers": [
+    {
+      "id": "anthropic",
+      "name": "Claude (Anthropic)",
+      "purpose": "Investigación, guion, revisión y metadatos",
+      "kind": "apikey",
+      "keyUrl": "https://console.anthropic.com/settings/keys",
+      "placeholder": "sk-ant-…",
+      "tools": [
+        "Claude"
+      ]
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "purpose": "Texto, revisión, imágenes, voz y miniaturas",
+      "kind": "apikey",
+      "keyUrl": "https://platform.openai.com/api-keys",
+      "placeholder": "sk-…",
+      "tools": [
+        "OpenAI",
+        "OpenAI Audio",
+        "OpenAI Imágenes"
+      ]
+    },
+    {
+      "id": "google_ai",
+      "name": "Google AI · Gemini y Veo",
+      "purpose": "Clips de video con Veo",
+      "kind": "apikey",
+      "keyUrl": "https://aistudio.google.com/apikey",
+      "placeholder": "AIza…",
+      "tools": [
+        "Google Veo (API)"
+      ]
+    },
+    {
+      "id": "elevenlabs",
+      "name": "ElevenLabs",
+      "purpose": "Narración con voces naturales y música por API",
+      "kind": "apikey",
+      "keyUrl": "https://elevenlabs.io/app/settings/api-keys",
+      "placeholder": "sk_…",
+      "tools": [
+        "ElevenLabs",
+        "ElevenLabs Music",
+        "Proveedor de voz"
+      ]
+    },
+    {
+      "id": "pexels",
+      "name": "Pexels",
+      "purpose": "Biblioteca de clips e imágenes de uso libre",
+      "kind": "apikey",
+      "keyUrl": "https://www.pexels.com/api/",
+      "placeholder": "Llave de Pexels",
+      "tools": [
+        "Biblioteca de clips"
+      ]
+    },
+    {
+      "id": "youtube",
+      "name": "YouTube",
+      "purpose": "Carga, programación y métricas por canal",
+      "kind": "oauth",
+      "tools": [
+        "YouTube API",
+        "YouTube Analytics"
+      ]
+    },
+    {
+      "id": "suno",
+      "name": "Suno",
+      "purpose": "Música original",
+      "kind": "unavailable",
+      "note": "Suno no ofrece una API pública: solo un programa de socios por invitación. Para música por API usa ElevenLabs Music o la Biblioteca musical.",
+      "tools": [
+        "Suno (acceso por validar)"
+      ]
+    }
+  ],
+  "builtinTools": [
+    "Manual",
+    "Motor de montaje",
+    "Reglas de Golddigger",
+    "Biblioteca musical"
+  ]
 }

@@ -53,7 +53,7 @@ curl http://127.0.0.1:3010/api/health                # versión en línea (commi
 - Producción: piezas de ejemplo, filtros y ficha de metadatos.
 - Calendario: programación ilustrativa.
 - Resultados y costos: métricas y desglose de costos simulados.
-- Conexiones: estados de configuración de proveedores; no solicita claves.
+- Conexiones: llaves de Claude, OpenAI, Google AI (Veo), ElevenLabs y Pexels (se prueban y se guardan cifradas); cliente de Google Cloud y canales de YouTube por OAuth.
 - Usuarios: equipo del panel, roles (propietario / editor), altas y bajas.
 
 ## Editor de flujo
@@ -93,7 +93,22 @@ PostgreSQL guarda usuarios, espacios de trabajo, sesiones, canales, campañas y 
 
 Toda ruta verifica la sesión y que el recurso pertenezca al espacio de trabajo del usuario. El servidor revalida campañas y flujos (opciones del catálogo, dependencias, ciclos, límites). Las escrituras exigen JSON del mismo origen (protección CSRF) y el inicio de sesión limita intentos por IP y correo.
 
-Siguiente etapa: conexión con YouTube por canal, adaptadores de proveedores, ejecución de trabajos y registro real de consumo. Ver [docs/architecture.md](docs/architecture.md).
+### Conexiones
+
+| Método | Ruta | Uso |
+|---|---|---|
+| GET | `/api/integrations` | Estado de proveedores, cliente de Google y canales |
+| PUT/DELETE | `/api/integrations/:proveedor` | Guardar (tras probarla) o quitar una llave · propietarios |
+| POST | `/api/integrations/:proveedor/test` | Volver a probar la llave guardada |
+| PUT | `/api/integrations/google_oauth/client` | Cliente OAuth de Google Cloud (se valida con Google) · propietarios |
+| POST | `/api/youtube/connect` | Inicia la autorización de un canal; `GET /api/youtube/callback` la completa |
+| POST | `/api/channels/:id/sync` · `/disconnect` | Actualizar estadísticas · desconectar y revocar (propietarios) |
+
+Llaves y tokens se cifran con AES-256-GCM. La llave maestra se crea sola en `/opt/golddigger/data/secret.key` (o se define con `GD_SECRET_KEY`): **respáldala junto con la base**; sin ella hay que volver a capturar las credenciales. Los canales conectados se actualizan cada 6 horas.
+
+Google: publica la pantalla de consentimiento («En producción») para que los permisos no venzan a los 7 días, y solicita la auditoría de la API de YouTube para que los videos subidos por API puedan ser públicos.
+
+Siguiente etapa: ejecución de los flujos con los proveedores conectados (trabajos, almacenamiento de archivos, consumo real) y publicación en YouTube. Ver [docs/architecture.md](docs/architecture.md).
 
 ## Estructura
 
@@ -113,8 +128,13 @@ golddigger/
   server/store/                PostgreSQL, memoria (pruebas) y datos iniciales
   server/migrations/           Esquema de la base
   server/cli.js                Usuarios desde la terminal
+  server/connections.js        Rutas de Conexiones
+  server/providers.js          Pruebas de llaves por proveedor
+  server/youtube.js            Google OAuth y YouTube Data API
+  server/vault.js              Cifrado de credenciales
   public/assets/catalog.json   Catálogo compartido: herramientas, opciones y flujo por defecto
   public/assets/api.js         Cliente de la API
+  public/assets/connections.js Pantalla de Conexiones
   tests/server.test.js         Pruebas de entrega, acceso y aislamiento de archivos
   docs/architecture.md         Guía para añadir backend y proveedores
   deploy/setup-vps.sh          Instalación única en el VPS

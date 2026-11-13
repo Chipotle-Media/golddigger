@@ -15,7 +15,7 @@
   const nodes = () => flow()?.nodes || [];
   const find = (id) => nodes().find((n) => n.id === id);
   const btn = (text, act, extra = '') => `<button type="button" class="gd-button" data-gf="${act}" ${extra}>${text}</button>`;
-  const blockedTool = (t) => t.includes('por validar') || t.includes('por configurar');
+  const blockedTool = (t) => t.includes('por validar') || t.includes('por configurar') || (gd().toolReady ? !gd().toolReady(t) : false);
 
   window.gd.hasUnsavedChanges = () => [...flows.values()].some((f) => f.dirty);
 
@@ -100,7 +100,7 @@
     const f = flow();
     if (!f || f.loading) { host.innerHTML = '<p>Cargando flujo…</p>'; root.querySelector('#gf-summary').textContent = ''; return; }
     if (f.error) { host.innerHTML = `<p class="gd-error">${esc(f.error)}</p>${btn('Reintentar', 'reload')}`; return; }
-    host.innerHTML = nodes().map((n, i) => `<button type="button" class="gf-node ${blockedTool(n.tool) ? 'gf-blocked' : ''}" data-node="${esc(n.id)}" aria-pressed="${n.id === selected}"><span class="gf-number">${String(i + 1).padStart(2, '0')} · ${n.deps.length > 1 ? 'UNIÓN' : n.deps.length ? 'PROCESO' : 'INICIO'}</span><strong>${esc(n.name)}</strong><small>${esc(n.tool)}</small>${n.approval ? '<small>Requiere aprobación</small>' : ''}<span class="gf-port gf-in"></span><span class="gf-port"></span></button>`).join('');
+    host.innerHTML = nodes().map((n, i) => `<button type="button" class="gf-node ${blockedTool(n.tool) ? 'gf-blocked' : ''}" data-node="${esc(n.id)}" aria-pressed="${n.id === selected}"><span class="gf-number">${String(i + 1).padStart(2, '0')} · ${n.deps.length > 1 ? 'UNIÓN' : n.deps.length ? 'PROCESO' : 'INICIO'}</span><strong>${esc(n.name)}</strong><small>${esc(n.tool)}${blockedTool(n.tool) ? ' · sin conectar' : ''}</small>${n.approval ? '<small>Requiere aprobación</small>' : ''}<span class="gf-port gf-in"></span><span class="gf-port"></span></button>`).join('');
     requestAnimationFrame(draw);
     const total = nodes().reduce((a, n) => a + Number(n.limit || 0), 0);
     root.querySelector('#gf-summary').textContent = `${nodes().length} procesos · Límites sumados: $${total.toFixed(2)} USD por pieza (sin reintentos)`;
@@ -181,7 +181,7 @@
       refreshCampaignOption();
       const blocked = nodes().filter((x) => blockedTool(x.tool)).length;
       status((workflow.unchanged ? 'Sin cambios respecto a la versión ' + workflow.version + '.' : `Guardado como versión ${workflow.version}.`) +
-        (blocked ? ` Hay ${blocked} conector(es) pendiente(s) de configurar.` : '') + ' No activa producción real todavía.');
+        (blocked ? ` ${blocked} proceso(s) usan herramientas sin conectar.` : ''));
     } catch (err) {
       if (err.status === 409) status(err.message + ' Usa «Descartar cambios» para cargar la versión más reciente.', 'error');
       else if (err.status !== 401) status(err.message, 'error');
@@ -242,7 +242,10 @@
       const error = validate();
       if (error) return status(error, 'error');
       const blocked = nodes().filter((x) => blockedTool(x.tool)).length;
-      if (a === 'validate') return status('Estructura válida: sin ciclos ni conexiones inválidas.' + (blocked ? ` ${blocked} conector(es) pendiente(s) de validar.` : ''));
+      if (a === 'validate') {
+        const names = [...new Set(nodes().filter((x) => blockedTool(x.tool)).map((x) => x.tool))];
+        return status('Estructura válida: sin ciclos ni conexiones inválidas.' + (names.length ? ` Falta conectar en Conexiones: ${names.join(', ')}.` : ' Todas las herramientas están conectadas.'));
+      }
       let remaining = [...nodes()]; const done = new Set(), groups = [];
       while (remaining.length) {
         const ready = remaining.filter((x) => x.deps.every((d) => done.has(d)));

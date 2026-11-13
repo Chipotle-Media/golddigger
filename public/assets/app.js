@@ -62,7 +62,7 @@
       (list.length ? `<div class="gd-grid">${list.map((ch) => {
         const camps = gd.campaigns.filter((c) => c.channelId === ch.id);
         const revenue = camps.reduce((a, c) => a + metric(c, 'revenue'), 0);
-        return `<article class="gd-card"><div class="gd-cover ${esc(ch.theme)}">${esc(ch.mark)}</div><div class="gd-cardtop"><h3>${esc(ch.name)}</h3>${ch.isDemo ? badge('Ejemplo', '') : ch.externalId ? badge('Conectado') : badge('Sin conectar', 'wait')}</div><p>${esc(ch.niche)}</p><div class="gd-details"><div><span>Suscriptores</span><b>${Number(ch.metrics?.subscribers || 0).toLocaleString('en-US')}</b></div><div><span>Campañas activas</span><b>${camps.filter((c) => c.status === 'active').length}</b></div><div><span>Ingresos del período</span><b>${money(revenue)}</b></div><div><span>Publicación</span><b>${camps.some((c) => c.autoPublish) ? 'Automática' : 'Manual'}</b></div></div>${button('Ver campañas', 'campaigns-of:' + ch.id)}</article>`;
+        return `<article class="gd-card"><div class="gd-cover ${esc(ch.theme)}">${ch.thumbnailUrl ? `<img src="${esc(ch.thumbnailUrl)}" alt="" referrerpolicy="no-referrer">` : esc(ch.mark)}</div><div class="gd-cardtop"><h3>${esc(ch.name)}</h3>${ch.isDemo ? badge('Ejemplo', '') : ch.connected ? (ch.lastError ? badge('Revisar', 'red') : badge('Conectado')) : badge('Sin conectar', 'wait')}</div><p>${esc(ch.niche)}</p><div class="gd-details"><div><span>Suscriptores</span><b>${Number(ch.metrics?.subscribers || 0).toLocaleString('en-US')}</b></div><div><span>Campañas activas</span><b>${camps.filter((c) => c.status === 'active').length}</b></div><div><span>Ingresos del período</span><b>${money(revenue)}</b></div><div><span>Publicación</span><b>${camps.some((c) => c.autoPublish) ? 'Automática' : 'Manual'}</b></div></div><div class="gd-flex">${button('Ver campañas', 'campaigns-of:' + ch.id)}${ch.connected ? '' : button('Conectar con YouTube', 'go-connections')}</div></article>`;
       }).join('')}</div>` : empty('Todavía no hay canales. Crea uno para empezar a armar campañas.', action('+ Nuevo canal', 'channel-new'))) +
       `<section class="gd-panel gd-section"><h2>Cada canal conserva su identidad</h2><div class="gd-details"><div><span>Voz, idioma y marca visual</span><span>Por canal</span></div><div><span>Autorización de YouTube</span><span>Conexión independiente</span></div><div><span>Presupuesto y calendario</span><span>Por campaña</span></div></div></section>` + note;
   }
@@ -110,17 +110,9 @@
       ].map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td><td class="num">${money(sum('cost') * r[2])}</td></tr>`).join('')}</tbody><tfoot><tr><td colspan="2">Total de producción</td><td class="num">${money(sum('cost'))}</td></tr></tfoot></table></div></section>` + note;
   }
   function connections() {
-    const providers = [
-      ['Claude', 'Guion y estructura', 'Listo para conectar', 'API oficial'],
-      ['OpenAI', 'Revisión, imágenes y voz', 'Listo para conectar', 'API oficial'],
-      ['Google Veo', 'Clips generados', 'Listo para conectar', 'API de video · distinta de Flow'],
-      ['Suno', 'Música original', 'Por validar', 'Acceso autorizado y derechos pendientes'],
-      ['YouTube', 'Carga, programación y métricas', 'Listo para conectar', 'Autorización por canal'],
-      ['Biblioteca musical', 'Música para tus piezas', 'Disponible en demo', 'Alternativa a Suno']
-    ];
-    return heading('Conexiones', 'Elige las herramientas que participan en tu producción.') +
-      `<div class="gd-grid two">${providers.map((p, i) => `<article class="gd-card"><div class="gd-cardtop"><h3>${p[0]}</h3>${badge(p[2], i === 3 ? 'wait' : '')}</div><p>${p[1]}</p><div class="gd-details"><small>${p[3]}</small></div>${button(i === 3 ? 'Ver requisito' : 'Configurar', 'provider:' + i)}</article>`).join('')}</div><p class="gd-note">Esta vista no solicita ni almacena credenciales todavía. Las claves se guardarán solo en el servidor cuando se conecte cada proveedor.</p>`;
+    return gd.pages?.connections ? gd.pages.connections() : heading('Conexiones', 'Cargando…');
   }
+
 
   // ── Canales y datos de ejemplo ────────────────────────────────────────────
   function newChannel() {
@@ -240,6 +232,8 @@
     sel.innerHTML = `<option value="all">Todos los canales</option>${gd.channels.map((ch) => `<option value="${ch.id}">${esc(ch.name)}</option>`).join('')}`;
     if (channel !== 'all' && !gd.channels.some((ch) => String(ch.id) === channel)) channel = 'all';
     sel.value = channel;
+    const ytCount = gd.channels.filter((ch) => ch.connected).length;
+    $('.gd-demo').textContent = ytCount ? `YouTube conectado · ${ytCount} ${ytCount === 1 ? 'canal' : 'canales'}` : 'Métricas simuladas · YouTube aún sin conectar';
     $('#gd-ws-name').textContent = gd.me.workspace.name;
     $('#gd-ws-mark').textContent = initials(gd.me.workspace.name).slice(0, 1);
     $('#gd-ws-count').textContent = `${gd.channels.length} canales · ${gd.campaigns.length} campañas`;
@@ -251,12 +245,13 @@
   function render() {
     nav.innerHTML = names.map((n, i) => `<button type="button" class="${page === i ? 'active' : ''}" data-page="${i}" ${page === i ? 'aria-current="page"' : ''}>${n}</button>`).join('');
     $('#gd-crumb').textContent = gd.me.workspace.name + ' / ' + names[page];
-    $('#gd-channel').closest('label').hidden = page === 7;
+    $('#gd-channel').closest('label').hidden = page === 7 || page === 6;
     content.innerHTML = [overview, channels, campaignView, production, calendar, results, connections, usersView][page]();
   }
   gd.render = () => { renderChrome(); render(); };
   function go(p) {
     if (p === 7) team = null;
+    if (p === 6) gd.integrations = null;
     page = p; closeModal(); render(); savePrefs();
     // Comprobación ligera: si quitaron al usuario o cerró sesión en otro lado, vuelve a la pantalla de acceso.
     api.get('/api/auth/me').then((me) => { if (me.workspace.role !== gd.me?.workspace.role) { gd.me = me; render(); } }).catch(() => {});
@@ -376,6 +371,8 @@
     };
   }
 
+  gd.ui = { esc, button, action, badge, heading, stat, empty, modal, closeModal, showFormError, submitting };
+
   // ── Eventos ───────────────────────────────────────────────────────────────
   nav.onclick = (e) => { const b = e.target.closest('[data-page]'); if (b) go(+b.dataset.page); };
   $('#gd-channel').onchange = (e) => { channel = e.target.value; closeModal(); render(); savePrefs(); };
@@ -396,6 +393,7 @@
     else if (a === 'logout') logout();
     else if (a === 'user-new') newUser();
     else if (a === 'channel-new') newChannel();
+    else if (a === 'go-connections') go(6);
     else if (a === 'demo-clear') clearDemo(b);
     else if (a === 'users-reload') { team = null; render(); }
     else if (a.startsWith('user-role:')) changeRole(+a.split(':')[1], b);
@@ -409,11 +407,7 @@
     } else if (a === 'metadata') {
       modal(`<div class="gd-panelhead"><h2>Ficha de publicación · ejemplo</h2>${button('Cerrar', 'close')}</div><div class="gd-form"><label class="wide">Título<input value="La ciudad que desapareció del mapa: lo que sabemos"></label><label class="wide">Descripción<textarea rows="3">Exploramos las pistas y las fuentes detrás de una ciudad olvidada.</textarea></label><label>Categoría<select><option>Educación</option><option>Ciencia y tecnología</option><option>Entretenimiento</option></select></label><label>Audiencia<select><option>No creado para niños</option><option>Creado para niños</option></select></label><label class="gd-check wide"><input type="checkbox" checked>Declarar contenido sintético realista cuando corresponda</label><div class="wide"><div class="gd-video">LA CIUDAD<br>QUE DESAPARECIÓ</div><small>Miniatura de ejemplo · sin archivo de video generado</small></div></div>`);
     } else if (a === 'schedule') notify('La programación real llegará con la conexión a YouTube.');
-    else if (a.startsWith('provider:')) {
-      notify(+a.split(':')[1] === 3
-        ? 'Suno: confirmar acceso autorizado a generación y licencia comercial antes de habilitar la conexión.'
-        : 'La conexión con este proveedor es el siguiente paso del desarrollo. No ingreses claves en esta vista.');
-    }
+
   });
 
   // ── Sesión y arranque ─────────────────────────────────────────────────────
@@ -458,7 +452,7 @@
   async function logout() {
     if (gd.hasUnsavedChanges?.() && !confirm('Tienes cambios sin guardar en un flujo. ¿Cerrar sesión de todos modos?')) return;
     try { await api.post('/api/auth/logout'); } catch { /* la cookie se limpia igual */ }
-    gd.me = null; gd.campaigns = []; gd.channels = []; team = null;
+    gd.me = null; gd.campaigns = []; gd.channels = []; gd.integrations = null; team = null;
     window.dispatchEvent(new CustomEvent('gd:logout'));
     showLogin();
   }
@@ -470,6 +464,7 @@
     const saved = prefs?.get() || {};
     if (Number.isInteger(saved.page) && saved.page >= 0 && saved.page < names.length) page = saved.page;
     if (typeof saved.channel === 'string') channel = saved.channel;
+    if (await gd.handleOAuthReturn?.()) page = 6; else await gd.loadIntegrations?.();
     gd.ready = true;
     renderChrome();
     setView('app');

@@ -23,9 +23,16 @@ const toCampaign = (r) => ({
   status: r.status, metrics: r.metrics, isDemo: r.is_demo, createdAt: r.created_at.toISOString(), updatedAt: r.updated_at.toISOString(),
   workflowVersion: Number(r.workflow_version)
 });
+const iso = (d) => (d ? d.toISOString() : null);
 const toChannel = (r) => ({
   id: Number(r.id), name: r.name, niche: r.niche, mark: r.mark, theme: r.theme, provider: r.provider,
-  isDemo: r.is_demo, metrics: r.metrics, createdAt: r.created_at.toISOString()
+  isDemo: r.is_demo, metrics: r.metrics, createdAt: iso(r.created_at),
+  externalId: r.external_id || null, handle: r.handle || null, thumbnailUrl: r.thumbnail_url || null,
+  connected: Boolean(r.oauth_enc), connectedAt: iso(r.connected_at), lastSyncedAt: iso(r.last_synced_at), lastError: r.last_error || null
+});
+const toIntegration = (r) => ({
+  provider: r.provider, config: r.config, secretHint: r.secret_hint, status: r.status, lastCheckedAt: iso(r.last_checked_at),
+  lastError: r.last_error, accountLabel: r.account_label, updatedAt: iso(r.updated_at), updatedBy: r.updated_by_name || null
 });
 
 /** Almacén en PostgreSQL. El controlador `pg` se carga solo aquí, para que pruebas y modo demo no lo necesiten. */
@@ -198,6 +205,78 @@ export async function createPostgresStore(connectionString) {
         const keptChannels = (await c.query(`UPDATE channels SET is_demo = false, metrics = '{}'::jsonb WHERE workspace_id = $1 AND is_demo`, [ws])).rowCount;
         return { campaigns, channels, keptChannels };
       });
+    },
+
+    // ── Conexiones ──
+    async listIntegrations(ws) {
+      return (await q(`SELECT i.*, u.name AS updated_by_name FROM integrations i LEFT JOIN users u ON u.id = i.updated_by
+                       WHERE i.workspace_id = $1 ORDER BY i.provider`, [ws])).rows.map(toIntegration);
+    },
+    async getIntegration(ws, provider) {
+      const r = (await q('SELECT * FROM integrations WHERE workspace_id = $1 AND provider = $2', [ws, provider])).rows[0];
+      return r ? { ...toIntegration(r), secretEnc: r.secret_enc } : null;
+    },
+    async saveIntegration(ws, provider, { config = {}, secretEnc, secretHint, status = 'connected', lastError = null, accountLabel = null, userId }) {
+      await q(`INSERT INTO integrations (workspace_id, provider, config, secret_enc, secret_hint, status, last_error, account_label, updated_by, last_checked_at, updated_at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), now())
+               ON CONFLICT (workspace_id, provider) DO UPDATE SET config = EXCLUDED.config,
+                 secret_enc = COALESCE(EXCLUDED.secret_enc, integrations.secret_enc), secret_hint = COALESCE(EXCLUDED.secret_hint, integrations.secret_hint),
+                 status = EXCLUDED.status, last_error = EXCLUDED.last_error, account_label = EXCLUDED.account_label,
+                 updated_by = EXCLUDED.updated_by, last_checked_at = now(), updated_at = now()`,
+        [ws, provider, config, secretEnc || null, secretHint || null, status, lastError, accountLabel, userId || null]);
+      return (await this.listIntegrations(ws)).find((i) => i.provider === provider);
+    },
+    async markIntegration(ws, provider, { status, lastError = null, accountLabel }) {
+      await q(`UPDATE integrations SET status = $3, last_error = $4, account_label = COALESCE($5, account_label), last_checked_at = now()
+               WHERE workspace_id = $1 AND provider = $2`, [ws, provider, status, lastError, accountLabel ?? null]);
+      return (await this.listIntegrations(ws)).find((i) => i.provider === provider) || null;
+    },
+    async deleteIntegration(ws, provider) {
+      return (await q('DELETE FROM integrations WHERE workspace_id = $1 AND provider = $2', [ws, provider])).rowCount > 0;
+    },
+
+    /** Vincula un canal de YouTube autorizado: al canal indicado, al que ya tenga ese ID externo o a uno nuevo. */
+    async connectChannel(ws, { channelId, externalId, name, handle, thumbnailUrl, metrics, oauthEnc, userId }) {
+      return tx(async (c) => {
+        const byExternal = (await c.query(`SELECT id, name FROM channels WHERE workspace_id = $1 AND provider = 'youtube' AND external_id = $2`, [ws, externalId])).rows[0];
+        let id = channelId;
+        if (id) {
+          const target = (await c.query('SELECT id FROM channels WHERE workspace_id = $1 AND id = $2 FOR UPDATE', [ws, id])).rows[0];
+          if (!target) throw new NotFoundError('Canal no encontrado.');
+          if (byExternal && Number(byExternal.id) !== id) throw new ConflictError(`Ese canal de YouTube ya está conectado como «${byExternal.name}».`);
+        } else {
+          id = byExternal ? Number(byExternal.id) : null;
+        }
+        const mark = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || 'YT';
+        if (id) {
+          await c.query(`UPDATE channels SET external_id = $3, handle = $4, thumbnail_url = $5, metrics = $6, oauth_enc = $7, connected_at = now(),
+                           connected_by = $8, last_synced_at = now(), last_error = NULL, is_demo = false,
+                           name = CASE WHEN is_demo OR external_id IS NOT NULL THEN $9 ELSE name END
+                         WHERE workspace_id = $1 AND id = $2`, [ws, id, externalId, handle, thumbnailUrl, metrics, oauthEnc, userId, name]);
+        } else {
+          id = Number((await c.query(`INSERT INTO channels (workspace_id, name, mark, provider, external_id, handle, thumbnail_url, metrics, oauth_enc, connected_at, connected_by, last_synced_at)
+                                      VALUES ($1,$2,$3,'youtube',$4,$5,$6,$7,$8, now(), $9, now()) RETURNING id`,
+            [ws, name, mark, externalId, handle, thumbnailUrl, metrics, oauthEnc, userId])).rows[0].id);
+        }
+        return toChannel((await c.query('SELECT * FROM channels WHERE id = $1', [id])).rows[0]);
+      });
+    },
+    async getChannelOAuth(ws, channelId) {
+      const r = (await q('SELECT oauth_enc, external_id FROM channels WHERE workspace_id = $1 AND id = $2', [ws, channelId])).rows[0];
+      return r ? { oauthEnc: r.oauth_enc, externalId: r.external_id } : null;
+    },
+    async updateChannelSync(ws, channelId, { name, handle, thumbnailUrl, metrics, lastError = null, oauthEnc }) {
+      const r = (await q(`UPDATE channels SET name = COALESCE($3, name), handle = COALESCE($4, handle), thumbnail_url = COALESCE($5, thumbnail_url),
+                            metrics = COALESCE($6, metrics), last_error = $7, oauth_enc = COALESCE($8, oauth_enc),
+                            last_synced_at = CASE WHEN $7::text IS NULL THEN now() ELSE last_synced_at END
+                          WHERE workspace_id = $1 AND id = $2 RETURNING *`,
+        [ws, channelId, name ?? null, handle ?? null, thumbnailUrl ?? null, metrics ?? null, lastError, oauthEnc ?? null])).rows[0];
+      return r ? toChannel(r) : null;
+    },
+    async disconnectChannel(ws, channelId) {
+      const r = (await q(`UPDATE channels SET oauth_enc = NULL, external_id = NULL, connected_at = NULL, connected_by = NULL, last_error = NULL, metrics = '{}'::jsonb
+                          WHERE workspace_id = $1 AND id = $2 RETURNING *`, [ws, channelId])).rows[0];
+      return r ? toChannel(r) : null;
     },
 
     async listCampaigns(ws) { return (await q(`${CAMPAIGN_SELECT} WHERE c.workspace_id = $1 ORDER BY c.id`, [ws])).rows.map(toCampaign); },

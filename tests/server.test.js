@@ -16,7 +16,7 @@ test('entrega la app y sus archivos, y protege archivos privados', async (t) => 
   assert.equal(page.status, 200);
   assert.match(await page.text(), /Golddigger Studio/);
   assert.match(page.headers.get('content-security-policy'), /script-src 'self'/);
-  for (const asset of ['state.js', 'api.js', 'app.js', 'flow-editor.js', 'styles.css', 'catalog.json', 'favicon.svg']) {
+  for (const asset of ['state.js', 'api.js', 'app.js', 'connections.js', 'flow-editor.js', 'styles.css', 'catalog.json', 'favicon.svg']) {
     assert.equal((await fetch(`${base}/assets/${asset}`)).status, 200, asset);
   }
   for (const resource of ['/.env', '/server/index.js', '/package.json', '/assets/%2e%2e%2f%2e%2e%2f.env', '/server/migrations/001_inicial.sql', '/server/migrations/002_datos_ejemplo.sql']) {

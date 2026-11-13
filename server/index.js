@@ -32,13 +32,13 @@ export function createServer(options = {}) {
   const auth = options.auth?.user && options.auth?.pass ? options.auth : null;
   const startedAt = new Date().toISOString();
   const version = options.version || 'dev';
-  const api = createApi({ store, secureCookies: options.secureCookies });
+  const api = createApi({ store, secureCookies: options.secureCookies, vault: options.vault || null, fetchImpl: options.fetchImpl || fetch, publicUrl: options.publicUrl || null });
 
-  return http.createServer(async (req, res) => {
+  const server = http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://yt3.ggpht.com https://yt3.googleusercontent.com https://*.ytimg.com; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
     function json(status, data) {
       if (res.headersSent) return;
       res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -101,6 +101,8 @@ export function createServer(options = {}) {
       json(error.code === 'ENOENT' || error.code === 'EISDIR' ? 404 : 500, { error: 'file_unavailable' });
     }
   });
+  server.connections = api.connections;
+  return server;
 }
 
 async function main() {
@@ -125,7 +127,25 @@ async function main() {
   // Con base de datos real, el inicio de sesión propio sustituye la contraseña HTTP básica.
   const useBasic = !store || store.kind === 'memory';
   const auth = useBasic ? { user: process.env.GD_AUTH_USER, pass: process.env.GD_AUTH_PASS } : null;
-  const server = createServer({ store, auth, version, secureCookies: process.env.NODE_ENV === 'production' });
+  let vault = null;
+  if (store) {
+    const { vaultFromEnv } = await import('./vault.js');
+    vault = vaultFromEnv();
+  }
+  const server = createServer({ store, auth, version, vault, publicUrl: process.env.GD_PUBLIC_URL || null, secureCookies: process.env.NODE_ENV === 'production' });
+
+  // Actualiza estadísticas de los canales de YouTube conectados cada 6 horas.
+  if (store && server.connections) {
+    const syncAll = async () => {
+      for (const w of await store.listWorkspaces().catch(() => [])) {
+        for (const ch of (await store.listChannels(w.id)).filter((c) => c.connected)) {
+          await server.connections.syncChannel(w.id, ch.id).catch((e) => console.error('Sincronización de YouTube:', e.message));
+        }
+      }
+    };
+    setTimeout(syncAll, 60 * 1000).unref();
+    setInterval(syncAll, 6 * 3600 * 1000).unref();
+  }
   server.listen(port, host, () => {
     console.log(`Golddigger ${version} en http://${host}:${port} · datos: ${store ? store.kind : 'sin configurar'}${auth?.user && auth?.pass ? ' · con contraseña HTTP' : ''}`);
   });

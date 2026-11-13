@@ -2,6 +2,7 @@ import { hashPassword, verifyPassword, newSessionToken, hashToken, parseCookies,
   SESSION_COOKIE, SESSION_DAYS, LoginLimiter } from './auth.js';
 import { validateCampaign, validateWorkflow, validateCredentials, validateNewPassword, validateEmail, validateChannel, ValidationError } from './validate.js';
 import { defaultFlow } from './catalog.js';
+import { registerConnectionRoutes } from './connections.js';
 
 const MAX_BODY = 256 * 1024;
 
@@ -50,7 +51,7 @@ const intId = (s) => {
  * Crea el manejador de /api/*. Devuelve una función (req, res, pathname, json) que resuelve la ruta.
  * store === null significa que falta configurar la base de datos en producción.
  */
-export function createApi({ store, secureCookies = false, limiter = new LoginLimiter() }) {
+export function createApi({ store, secureCookies = false, limiter = new LoginLimiter(), vault = null, fetchImpl = fetch, publicUrl = null }) {
   const routes = [];
   const route = (method, pattern, handler, { auth = true } = {}) => {
     const keys = [];
@@ -63,6 +64,8 @@ export function createApi({ store, secureCookies = false, limiter = new LoginLim
     if (!token || token.length > 100) return null;
     return store.getSession(hashToken(token));
   }
+
+  const connections = store ? registerConnectionRoutes(route, { store, vault, fetchImpl, HttpError, readJson, publicUrl, currentSession }) : null;
 
   // ── Autenticación ─────────────────────────────────────────────────────────
   route('POST', '/api/auth/login', async ({ req, res }) => {
@@ -209,7 +212,7 @@ export function createApi({ store, secureCookies = false, limiter = new LoginLim
     return { workflow: wf };
   });
 
-  return async function handle(req, res, pathname, json) {
+  const handle = async function handle(req, res, pathname, json) {
     try {
       if (!store) return json(503, { error: 'database_not_configured', message: 'Falta configurar la base de datos en el servidor.' });
       const candidates = routes.filter((r) => r.re.test(pathname));
@@ -225,14 +228,17 @@ export function createApi({ store, secureCookies = false, limiter = new LoginLim
         if (!session) return json(401, { error: 'unauthorized', message: 'Inicia sesión para continuar.' });
       }
       const out = await r.handler({ req, res, params, session });
+      if (out?.redirect) { res.writeHead(302, { Location: out.redirect, 'Cache-Control': 'no-store' }); return res.end(); }
       return json(res.statusCode && res.statusCode !== 200 ? res.statusCode : 200, out);
     } catch (err) {
       if (err instanceof ValidationError || err instanceof HttpError || err.status) {
-        const { status = 400, message, field, currentVersion } = err;
-        return json(status, { error: status === 409 ? 'conflict' : status === 400 ? 'invalid' : 'error', message, field, currentVersion });
+        const { status = 400, message, field, currentVersion, canForce } = err;
+        return json(status, { error: status === 409 ? 'conflict' : status === 400 ? 'invalid' : 'error', message, field, currentVersion, canForce });
       }
       console.error('Error en la API:', err);
       return json(500, { error: 'server_error', message: 'Ocurrió un error en el servidor. Inténtalo de nuevo.' });
     }
   };
+  handle.connections = connections;
+  return handle;
 }

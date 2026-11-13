@@ -11,3 +11,4 @@
 - Servicio en `127.0.0.1:3010` detrás de Nginx. Variables en `/opt/golddigger/.env` (no en el repo), incluida `DATABASE_URL`. Usuarios: `bash /opt/golddigger/app/deploy/admin.sh crear-usuario`. Datos persistentes futuros en `/opt/golddigger/data`.
 - Interfaz en español neutro de México (tuteo). Diseño oscuro con acento rojo `#ff0033`.
 - `/api/health` devuelve el commit en línea (`version`): úsalo para confirmar que un despliegue entró.
+- Credenciales: siempre cifradas con `server/vault.js` (llave en `/opt/golddigger/data/secret.key`); nunca devolver llaves ni tokens al navegador (solo `secretHint`). Llamadas externas reciben `fetchImpl` para poder simularlas en pruebas.
