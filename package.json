@@ -4,11 +4,16 @@
   "private": true,
   "description": "Panel web y editor visual de producción de video. Base de desarrollo con datos de demostración.",
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch-path=server server/index.js",
     "test": "node --test",
-    "check": "node --check server/index.js && node --check public/assets/state.js && node --check public/assets/app.js && node --check public/assets/flow-editor.js"
+    "check": "node --check server/index.js && node --check public/assets/state.js && node --check public/assets/app.js && node --check public/assets/flow-editor.js && node --check public/assets/api.js && node --check server/api.js && node --check server/cli.js"
+  },
+  "dependencies": {
+    "pg": "^8.23.1"
   }
 }

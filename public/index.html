@@ -9,13 +9,51 @@
 <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/assets/styles.css">
 <script defer src="/assets/state.js"></script>
+<script defer src="/assets/api.js"></script>
 <script defer src="/assets/app.js"></script>
 <script defer src="/assets/flow-editor.js"></script>
 </head>
 <body>
-<div id="golddigger" aria-label="Golddigger · Prototipo interactivo">
- <header class="gd-top"><div class="gd-brand">Golddigger <span class="gd-studio">STUDIO</span></div><span class="gd-demo">Vista previa · datos de ejemplo</span><div class="gd-avatar">CM</div></header>
- <div class="gd-shell"><aside><div class="gd-workspace"><span class="gd-avatar">G</span><div>Tu espacio de trabajo<small>3 canales · 3 campañas</small></div></div><nav aria-label="Secciones"></nav><div class="gd-sidebottom"><span class="gd-dot"></span> Automatización activa<small>Próxima publicación · 18:00</small></div></aside><main><div class="gd-context"><span id="gd-crumb">Workspace / Resumen</span><label>Canal <select id="gd-channel"><option value="all">Todos los canales</option><option value="0">Archivo Infinito</option><option value="1">Mente en Foco</option><option value="2">Órbita Tech</option></select></label></div><div id="gd-content"></div></main></div><div id="gd-notice" role="status" aria-live="polite"></div><div id="gd-modal" hidden></div>
+<div id="golddigger" aria-label="Golddigger Studio" data-view="loading">
+ <section id="gd-login" class="gd-login" aria-labelledby="gd-login-title">
+  <form id="gd-login-form" class="gd-login-card" novalidate>
+   <div class="gd-brand">Golddigger <span class="gd-studio">STUDIO</span></div>
+   <h1 id="gd-login-title">Inicia sesión</h1>
+   <p id="gd-login-sub">Entra con el correo y la contraseña de tu cuenta.</p>
+   <label>Correo<input name="email" type="email" autocomplete="username" required autofocus></label>
+   <label>Contraseña<input name="password" type="password" autocomplete="current-password" required></label>
+   <p id="gd-login-error" class="gd-error" role="alert"></p>
+   <button class="gd-action" type="submit">Entrar</button>
+  </form>
+ </section>
+ <section id="gd-loading" class="gd-login" aria-live="polite"><p>Cargando Golddigger…</p></section>
+ <div id="gd-app">
+  <header class="gd-top">
+   <div class="gd-brand">Golddigger <span class="gd-studio">STUDIO</span></div>
+   <span class="gd-demo">Métricas simuladas · YouTube aún sin conectar</span>
+   <div class="gd-usermenu">
+    <button type="button" class="gd-avatar" id="gd-user-button" aria-haspopup="true" aria-expanded="false" aria-controls="gd-user-panel">··</button>
+    <div id="gd-user-panel" class="gd-userpanel" hidden>
+     <strong id="gd-user-name"></strong><small id="gd-user-email"></small>
+     <button type="button" class="gd-button" data-act="password">Cambiar contraseña</button>
+     <button type="button" class="gd-button" data-act="logout">Cerrar sesión</button>
+    </div>
+   </div>
+  </header>
+  <div class="gd-shell">
+   <aside>
+    <div class="gd-workspace"><span class="gd-avatar" id="gd-ws-mark">G</span><div><span id="gd-ws-name">Tu espacio de trabajo</span><small id="gd-ws-count"></small></div></div>
+    <nav aria-label="Secciones"></nav>
+    <div class="gd-sidebottom"><span class="gd-dot"></span> Datos guardados en el servidor<small id="gd-version"></small></div>
+   </aside>
+   <main>
+    <div class="gd-context"><span id="gd-crumb">Workspace / Resumen</span><label>Canal <select id="gd-channel"><option value="all">Todos los canales</option></select></label></div>
+    <div id="gd-content"></div>
+   </main>
+  </div>
+  <div id="gd-notice" role="status" aria-live="polite"></div>
+  <div id="gd-modal" hidden></div>
+ </div>
 </div>
 <noscript>Activa JavaScript para utilizar Golddigger.</noscript>
 </body>

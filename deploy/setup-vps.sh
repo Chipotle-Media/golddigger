@@ -7,6 +7,7 @@
 #   - Node.js 22 privado en /opt/golddigger/node (no toca el Node del sistema)
 #   - Servicio systemd propio: golddigger
 #   - Sitio Nginx propio: golddigger.click (no modifica los sitios existentes)
+#   - Base PostgreSQL propia: golddigger (usuario y base nuevos, no toca otras bases)
 #   - Actualización automática desde GitHub cada minuto (igual que Mila)
 #
 # Uso:  bash setup-vps.sh   (es seguro correrlo más de una vez)
@@ -87,22 +88,45 @@ else
   echo "Instalado $("$BASE/node/bin/node" -v) en $BASE/node"
 fi
 
-# ── 5. Variables de entorno (contraseña de acceso al panel) ──────────────────
+# ── 5. Variables de entorno ─────────────────────────────────────────────────
 if [ ! -f "$BASE/.env" ]; then
-  say "Creando $BASE/.env con usuario y contraseña del panel"
-  GD_PASS="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 20 || true)"
+  say "Creando $BASE/.env"
   cat > "$BASE/.env" <<EOF
 NODE_ENV=production
 HOST=127.0.0.1
 PORT=$PORT
-# Acceso al panel mientras no exista inicio de sesión propio. Borra estas dos líneas para dejarlo abierto.
-GD_AUTH_USER=admin
-GD_AUTH_PASS=$GD_PASS
 EOF
-  NEW_PASS="$GD_PASS"
 fi
 chown root:"$APP_USER" "$BASE/.env"
 chmod 640 "$BASE/.env"
+
+# ── 5b. PostgreSQL: base y usuario propios (no toca las bases de otras apps) ─
+say "Configurando PostgreSQL"
+pg() { (cd /tmp && sudo -u postgres psql -v ON_ERROR_STOP=1 -tAq "$@"); }
+if ! pg -c 'SELECT 1' >/dev/null 2>&1; then
+  echo "PostgreSQL no está instalado o no responde; instalándolo."
+  apt-get install -y -qq postgresql
+  systemctl enable --now postgresql >/dev/null
+  pg -c 'SELECT 1' >/dev/null || fail "PostgreSQL no responde. Revisa: systemctl status postgresql"
+fi
+if ! grep -q '^DATABASE_URL=' "$BASE/.env"; then
+  DB_PASS="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32 || true)"
+  PG_PORT="$(pg -c 'SHOW port')"
+  if [ "$(pg -c "SELECT 1 FROM pg_roles WHERE rolname = 'golddigger'")" = "1" ]; then
+    pg -c "ALTER ROLE golddigger WITH LOGIN PASSWORD '$DB_PASS'"
+  else
+    pg -c "CREATE ROLE golddigger WITH LOGIN PASSWORD '$DB_PASS'"
+  fi
+  if [ "$(pg -c "SELECT 1 FROM pg_database WHERE datname = 'golddigger'")" != "1" ]; then
+    pg -c "CREATE DATABASE golddigger OWNER golddigger ENCODING 'UTF8' TEMPLATE template0"
+  fi
+  pg -d golddigger -c "REVOKE ALL ON DATABASE golddigger FROM PUBLIC; GRANT ALL ON SCHEMA public TO golddigger; ALTER SCHEMA public OWNER TO golddigger"
+  echo "DATABASE_URL=postgresql://golddigger:$DB_PASS@127.0.0.1:$PG_PORT/golddigger" >> "$BASE/.env"
+  echo "Base de datos «golddigger» lista (puerto $PG_PORT)."
+fi
+DBURL="$(grep '^DATABASE_URL=' "$BASE/.env" | cut -d= -f2-)"
+(cd /tmp && psql "$DBURL" -tAc 'SELECT 1' >/dev/null 2>&1) \
+  || fail "No se pudo entrar a la base con DATABASE_URL. Revisa que pg_hba.conf permita contraseña para 127.0.0.1."
 
 # ── 6. Servicio systemd ──────────────────────────────────────────────────────
 say "Configurando el servicio golddigger"
@@ -158,6 +182,12 @@ if [ ! -d "$BASE/app/.git" ]; then
   echo "Código descargado en $BASE/app"
 fi
 sudo -H -u "$APP_USER" bash -c "git -C '$BASE/app' rev-parse --short HEAD > '$BASE/app/VERSION'"
+
+say "Instalando dependencias de la app"
+sudo -H -u "$APP_USER" bash -c "cd '$BASE/app' && PATH='$BASE/node/bin':\$PATH npm_config_cache='$BASE/data/.npm' npm ci --omit=dev --no-audit --no-fund --loglevel=error" \
+  || fail "No se pudieron instalar las dependencias."
+sha256sum "$BASE/app/package-lock.json" | cut -d' ' -f1 > "$BASE/data/.deps_hash"
+chown "$APP_USER:$APP_USER" "$BASE/data/.deps_hash"
 systemctl restart golddigger
 
 # ── 8. Actualización automática cada minuto (como Mila) ──────────────────────
@@ -231,7 +261,10 @@ DNS_IP="$(getent ahostsv4 "$DOMAIN" | awk 'NR==1{print $1}' || true)"
 WWW_IP="$(getent ahostsv4 "www.$DOMAIN" | awk 'NR==1{print $1}' || true)"
 EMAIL_ARGS=(--register-unsafely-without-email)
 [ -n "${CERTBOT_EMAIL:-}" ] && EMAIL_ARGS=(-m "$CERTBOT_EMAIL")
-if [ -n "$SERVER_IP" ] && [ "$DNS_IP" = "$SERVER_IP" ]; then
+if [ -d "/etc/letsencrypt/live/$DOMAIN" ]; then
+  echo "Ya hay certificado HTTPS para $DOMAIN (se renueva solo)."
+  PROTO=https
+elif [ -n "$SERVER_IP" ] && [ "$DNS_IP" = "$SERVER_IP" ]; then
   DOMAINS=(-d "$DOMAIN"); [ "$WWW_IP" = "$SERVER_IP" ] && DOMAINS+=(-d "www.$DOMAIN")
   certbot --nginx --non-interactive --agree-tos --redirect "${EMAIL_ARGS[@]}" "${DOMAINS[@]}" \
     && PROTO=https || echo "Certbot falló; puedes reintentar más tarde (comando abajo)."
@@ -240,16 +273,22 @@ else
   echo "  certbot --nginx --agree-tos --redirect -d $DOMAIN -d www.$DOMAIN"
 fi
 
+# ── Primer usuario ───────────────────────────────────────────────────────────
+for _ in $(seq 1 15); do curl -fsS -o /dev/null "http://127.0.0.1:$PORT/api/health" && break; sleep 1; done
+USERS="$(cd /tmp && psql "$DBURL" -tAc 'SELECT count(*) FROM users' 2>/dev/null || echo '?')"
+if [ "$USERS" = "0" ] && [ -t 0 ]; then
+  say "Crea tu usuario para entrar al panel"
+  bash "$BASE/app/deploy/admin.sh" crear-usuario || true
+fi
+
 # ── Resumen ──────────────────────────────────────────────────────────────────
 HEALTH="$(curl -fsS "http://127.0.0.1:$PORT/api/health" || echo 'sin respuesta')"
 say "Listo"
 echo "  Sitio:      $PROTO://$DOMAIN"
 echo "  Servicio:   $HEALTH"
-if [ -n "${NEW_PASS:-}" ]; then
-  echo "  Panel:      usuario: admin   contraseña: $NEW_PASS"
-  echo "              (guárdala; se cambia en $BASE/.env y luego: systemctl restart golddigger)"
-fi
 echo
+echo "  Usuarios:   bash $BASE/app/deploy/admin.sh crear-usuario"
+echo "              bash $BASE/app/deploy/admin.sh cambiar-contrasena"
 echo "  Cada push a main en GitHub se instala solo en ~1 minuto (pruebas → reinicio → verificación)."
 echo "  Bitácora:   journalctl -u golddigger-actualizar -n 30"
 echo "  Forzar:     bash $BASE/app/deploy/actualizar.sh --ahora"

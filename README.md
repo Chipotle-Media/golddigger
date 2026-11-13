@@ -2,19 +2,20 @@
 
 Panel web para administrar canales, campañas y flujos de producción de video. Diseño oscuro con acentos rojos y marca tipográfica Golddigger, sin símbolo de reproducción ni pepita.
 
-**Estado: base funcional de interfaz para desarrollo, con datos de demostración. No es todavía una plataforma de producción automatizada.** Puedes cargarla en GitHub, ejecutarla en un servidor y continuar implementando servicios reales.
+**Estado:** inicio de sesión, PostgreSQL y campañas/flujos guardados en el servidor ya funcionan. Ingresos, vistas y costos siguen siendo simulados, y la producción automatizada (proveedores y YouTube) es la siguiente etapa.
 
 ## Inicio rápido (local)
 
-Requisito: Node.js 22 o superior. No hay dependencias que instalar.
+Requisito: Node.js 22 o superior.
 
 ```bash
+npm install
 npm run dev
 ```
 
-Abre http://localhost:3010. Los cambios en `public/` se ven al recargar; los del servidor reinician solos. Si existe un archivo `.env` (ver `.env.example`) se carga automáticamente.
+Abre http://localhost:3010 y entra con `admin@golddigger.local` / `golddigger-dev`. Sin `DATABASE_URL` los datos viven en memoria y se pierden al reiniciar; para usar PostgreSQL local define `DATABASE_URL` en `.env` (ver `.env.example`).
 
-Comprobar antes de subir: `npm run check && npm test`.
+Comprobar antes de subir: `npm run check && npm test`. Para correr además las pruebas contra PostgreSQL: `TEST_DATABASE_URL=postgresql://usuario:clave@127.0.0.1/golddigger_test npm test` (la base de pruebas se borra en cada corrida; su nombre debe contener "test").
 
 ## Despliegue automático (golddigger.click)
 
@@ -27,7 +28,7 @@ Golddigger corre **aislado** de Mila, Beto y el HUB: usuario `golddigger`, carpe
 1. **DNS (Hostinger → Dominios → golddigger.click → DNS):** registros `A` de `@` y `www` con la IP del VPS.
 2. **VPS:** copia `deploy/setup-vps.sh` al servidor y ejecútalo como root: `bash setup-vps.sh`.
    La primera vez imprime una llave pública: agrégala en GitHub → repo → Settings → Deploy keys (sin permiso de escritura) y vuelve a ejecutar el script.
-3. Al terminar muestra la dirección, el estado del servicio y la contraseña del panel.
+3. Crea la base PostgreSQL propia (`golddigger`), instala dependencias y te pide crear el primer usuario.
 
 ### Operación en el VPS
 
@@ -37,7 +38,8 @@ journalctl -u golddigger -f                          # registro en vivo de la ap
 journalctl -u golddigger-actualizar -n 30            # bitácora de actualizaciones
 bash /opt/golddigger/app/deploy/actualizar.sh --ahora  # forzar actualización
 touch /opt/golddigger/data/.pausar_actualizaciones   # pausar (borrar el archivo para reanudar)
-nano /opt/golddigger/.env && systemctl restart golddigger  # puerto y contraseña del panel
+bash /opt/golddigger/app/deploy/admin.sh crear-usuario       # nuevo usuario (entra al mismo espacio)
+bash /opt/golddigger/app/deploy/admin.sh cambiar-contrasena  # restablecer contraseña
 curl http://127.0.0.1:3010/api/health                # versión en línea (commit)
 ```
 
@@ -71,11 +73,23 @@ Las flechas muestran dependencias; mover un paso con Antes/Después cambia su or
 
 Los flujos y la última sección se conservan en `localStorage` con la clave `golddigger:workspace:v1`. **Esto es almacenamiento por navegador y origen, no una base de datos del servidor ni sincronización entre dispositivos.** No almacenar claves de proveedores aquí. Borrar los datos del sitio restaura la demo.
 
-## Qué todavía requiere backend
+## Datos y API
 
-El formulario de nueva campaña, las conexiones, las piezas, los ingresos y la programación son demostrativos. Guardar una campaña desde su formulario no crea registros; guardar el flujo sí conserva su configuración en el navegador. Pausar una tarjeta solo cambia su estado visual. La aplicación no genera videos, no consume tokens, no accede a cuentas de YouTube y no publica.
+PostgreSQL guarda usuarios, espacios de trabajo, sesiones, canales, campañas y versiones de flujo. Las migraciones de `server/migrations/` se aplican solas al arrancar.
 
-Para la siguiente etapa, implementar autenticación, base de datos, almacenamiento multimedia, ejecución de trabajos, autorizaciones por canal, adaptadores de proveedores, registro de consumo y publicación real. Ver [docs/architecture.md](docs/architecture.md).
+| Método | Ruta | Uso |
+|---|---|---|
+| POST | `/api/auth/login` · `/api/auth/logout` | Abrir y cerrar sesión (cookie HttpOnly, 30 días) |
+| GET | `/api/auth/me` | Usuario y espacio de trabajo actuales |
+| POST | `/api/auth/password` | Cambiar contraseña (cierra las demás sesiones) |
+| GET | `/api/channels` | Canales del espacio de trabajo |
+| GET/POST | `/api/campaigns` | Listar y crear campañas |
+| GET/PATCH | `/api/campaigns/:id` | Leer, editar, pausar o reanudar |
+| GET/PUT | `/api/campaigns/:id/workflow` | Leer el flujo y guardar una versión nueva (`baseVersion` evita pisar cambios ajenos) |
+
+Toda ruta verifica la sesión y que el recurso pertenezca al espacio de trabajo del usuario. El servidor revalida campañas y flujos (opciones del catálogo, dependencias, ciclos, límites). Las escrituras exigen JSON del mismo origen (protección CSRF) y el inicio de sesión limita intentos por IP y correo.
+
+Siguiente etapa: conexión con YouTube por canal, adaptadores de proveedores, ejecución de trabajos y registro real de consumo. Ver [docs/architecture.md](docs/architecture.md).
 
 ## Estructura
 
@@ -88,11 +102,20 @@ golddigger/
       state.js                Persistencia de demostración en navegador
       app.js                  Pantallas, navegación y formularios
       flow-editor.js          Editor de procesos y validación
-  server/index.js              Servidor HTTP, contraseña opcional y endpoint de salud
+  server/index.js              Servidor HTTP, archivos estáticos y endpoint de salud
+  server/api.js                Rutas de la API
+  server/auth.js               Contraseñas (scrypt), sesiones y límite de intentos
+  server/validate.js           Validación de campañas y flujos
+  server/store/                PostgreSQL, memoria (pruebas) y datos iniciales
+  server/migrations/           Esquema de la base
+  server/cli.js                Usuarios desde la terminal
+  public/assets/catalog.json   Catálogo compartido: herramientas, opciones y flujo por defecto
+  public/assets/api.js         Cliente de la API
   tests/server.test.js         Pruebas de entrega, acceso y aislamiento de archivos
   docs/architecture.md         Guía para añadir backend y proveedores
   deploy/setup-vps.sh          Instalación única en el VPS
   deploy/actualizar.sh         Actualización automática (la corre el VPS cada minuto)
+  deploy/admin.sh              Crear usuarios y cambiar contraseñas en el VPS
   .github/workflows/pruebas.yml Pruebas en GitHub en cada push
   .env.example
   package.json

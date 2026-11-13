@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createApi } from './api.js';
 
 const publicDir = path.resolve(fileURLToPath(new URL('../public/', import.meta.url)));
 const assetsDir = path.join(publicDir, 'assets');
@@ -21,13 +22,17 @@ function safeEqual(a, b) {
 }
 
 /**
- * options.auth: { user, pass } — si se define, todo el panel pide usuario y contraseña
- * (excepto /api/health, que usan el despliegue y el monitoreo).
+ * options.store: almacén de datos (memoria o PostgreSQL). null = base sin configurar (la API responde 503).
+ * options.auth: { user, pass } — contraseña HTTP básica opcional. Solo para el modo sin base de datos;
+ *               con PostgreSQL el acceso lo controla el inicio de sesión propio.
+ * options.secureCookies: forzar cookies Secure (además se detecta X-Forwarded-Proto: https).
  */
 export function createServer(options = {}) {
+  const store = options.store === undefined ? null : options.store;
   const auth = options.auth?.user && options.auth?.pass ? options.auth : null;
   const startedAt = new Date().toISOString();
   const version = options.version || 'dev';
+  const api = createApi({ store, secureCookies: options.secureCookies });
 
   return http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -35,6 +40,7 @@ export function createServer(options = {}) {
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
     function json(status, data) {
+      if (res.headersSent) return;
       res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
       res.end(req.method === 'HEAD' ? undefined : JSON.stringify(data));
     }
@@ -44,7 +50,11 @@ export function createServer(options = {}) {
     catch { return json(400, { error: 'invalid_path' }); }
 
     if (pathname === '/api/health' && ['GET', 'HEAD'].includes(req.method)) {
-      return json(200, { status: 'ok', app: 'golddigger', mode: 'demo', integrationsConnected: false, version, startedAt });
+      let database = store ? store.kind : 'sin_configurar';
+      if (store) {
+        try { await store.health(); } catch { database = 'error'; }
+      }
+      return json(database === 'error' ? 503 : 200, { status: database === 'error' ? 'degraded' : 'ok', app: 'golddigger', database, version, startedAt });
     }
 
     if (auth) {
@@ -64,11 +74,12 @@ export function createServer(options = {}) {
       }
     }
 
+    if (pathname.startsWith('/api/')) return api(req, res, pathname, json);
+
     if (!['GET', 'HEAD'].includes(req.method)) {
       res.setHeader('Allow', 'GET, HEAD');
-      return json(405, { error: 'method_not_allowed', message: 'Esta base no ofrece operaciones de producción.' });
+      return json(405, { error: 'method_not_allowed' });
     }
-    if (pathname.startsWith('/api/')) return json(501, { error: 'not_implemented', message: 'Implementar este servicio en el backend. No hay proveedores conectados.' });
     if (pathname === '/favicon.ico') { res.writeHead(301, { Location: '/assets/favicon.svg' }); return res.end(); }
     if (pathname.includes('\0') || pathname.includes('\\')) return json(400, { error: 'invalid_path' });
 
@@ -80,7 +91,7 @@ export function createServer(options = {}) {
     try {
       const bytes = await readFile(file);
       const etag = '"' + createHash('sha1').update(bytes).digest('base64url') + '"';
-      // no-cache = el navegador revalida siempre: cada despliegue se ve al instante, y si nada cambió responde 304 sin reenviar el archivo.
+      // no-cache = el navegador revalida siempre: cada despliegue se ve al instante, y si nada cambió responde 304.
       res.setHeader('ETag', etag);
       res.setHeader('Cache-Control', 'no-cache');
       if (req.headers['if-none-match'] === etag) { res.writeHead(304); return res.end(); }
@@ -92,20 +103,37 @@ export function createServer(options = {}) {
   });
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+async function main() {
   // Carga .env automáticamente si existe (local: ./.env; en el VPS systemd ya entrega las variables).
   try { process.loadEnvFile(); } catch { /* sin .env */ }
+  const { createStoreFromEnv } = await import('./store/index.js');
   const port = Number(process.env.PORT || 3010);
   const host = process.env.HOST || '127.0.0.1';
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT debe ser un puerto válido.');
-  const auth = { user: process.env.GD_AUTH_USER, pass: process.env.GD_AUTH_PASS };
+
   let version = process.env.GD_VERSION;
   try { version ||= readFileSync(new URL('../VERSION', import.meta.url), 'utf8').trim(); } catch { version ||= 'dev'; }
-  const server = createServer({ auth, version });
+
+  const store = await createStoreFromEnv();
+  if (!store) console.warn('⚠ Falta DATABASE_URL: el panel mostrará que la base de datos no está configurada.');
+  if (store?.kind === 'memory' && !(await store.countUsers())) {
+    const { hashPassword } = await import('./auth.js');
+    await store.createUser({ email: 'admin@golddigger.local', name: 'Administrador', passwordHash: await hashPassword('golddigger-dev'), workspaceName: 'Espacio de desarrollo' });
+    console.log('Modo desarrollo (datos en memoria). Entra con admin@golddigger.local / golddigger-dev');
+  }
+
+  // Con base de datos real, el inicio de sesión propio sustituye la contraseña HTTP básica.
+  const useBasic = !store || store.kind === 'memory';
+  const auth = useBasic ? { user: process.env.GD_AUTH_USER, pass: process.env.GD_AUTH_PASS } : null;
+  const server = createServer({ store, auth, version, secureCookies: process.env.NODE_ENV === 'production' });
   server.listen(port, host, () => {
-    console.log(`Golddigger disponible en http://${host}:${port}${auth.user && auth.pass ? ' (con contraseña)' : ''}`);
+    console.log(`Golddigger ${version} en http://${host}:${port} · datos: ${store ? store.kind : 'sin configurar'}${auth?.user && auth?.pass ? ' · con contraseña HTTP' : ''}`);
   });
-  const stop = () => server.close(() => process.exit(0));
+  const stop = () => server.close(async () => { await store?.close(); process.exit(0); });
   process.on('SIGTERM', stop);
   process.on('SIGINT', stop);
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((err) => { console.error('No se pudo iniciar Golddigger:', err.message); process.exit(1); });
 }

@@ -29,12 +29,34 @@ estado() {  # resultado mensaje
   echo "[$(fecha)] $1: $2"
 }
 
+# Dependencias (npm): se reinstalan cuando cambia package-lock.json o falta node_modules.
+DEPS_HASH="$BASE/data/.deps_hash"
+deps_ok() {
+  [ ! -f "$DIR/package-lock.json" ] && return 0
+  [ -d "$DIR/node_modules" ] && [ "$(sha256sum "$DIR/package-lock.json" | cut -d' ' -f1)" = "$(cat "$DEPS_HASH" 2>/dev/null)" ]
+}
+DEPS_FALLO="$BASE/data/.deps_fallo"
+instalar_deps() {
+  local hash; hash="$(sha256sum "$DIR/package-lock.json" | cut -d' ' -f1)"
+  # Si ya falló con este mismo package-lock hace menos de 10 minutos, no reintentar en cada vuelta.
+  if [ "$FORZAR" -eq 0 ] && [ "$(cat "$DEPS_FALLO" 2>/dev/null)" = "$hash" ] && [ $(( $(date +%s) - $(stat -c %Y "$DEPS_FALLO") )) -lt 600 ]; then
+    echo "npm falló hace poco con estas dependencias; se reintentará en unos minutos." > /tmp/gd_npm.log; return 1
+  fi
+  echo "Instalando dependencias…"
+  if ! (cd "$DIR" && COMO env PATH="$BASE/node/bin:$PATH" npm_config_cache="$BASE/data/.npm" \
+     npm ci --omit=dev --no-audit --no-fund --loglevel=error) >/tmp/gd_npm.log 2>&1; then
+    echo "$hash" > "$DEPS_FALLO"; return 1
+  fi
+  rm -f "$DEPS_FALLO"
+  sha256sum "$DIR/package-lock.json" | cut -d' ' -f1 > "$DEPS_HASH"; chown "$APP_USER:$APP_USER" "$DEPS_HASH" 2>/dev/null
+}
+
 if [ -f "$BASE/data/.pausar_actualizaciones" ] && [ "$FORZAR" -eq 0 ]; then exit 0; fi
 
 ANTES="$(COMO git -C "$DIR" rev-parse HEAD 2>/dev/null)" || { estado "error" "$DIR no es un repositorio git."; exit 1; }
 REMOTO="$(COMO git -C "$DIR" ls-remote -q origin refs/heads/main 2>/tmp/gd_lsremote.err | cut -f1)"
 if [ -z "$REMOTO" ]; then estado "error" "No se pudo consultar GitHub: $(tail -n 2 /tmp/gd_lsremote.err)"; exit 1; fi
-if [ "$REMOTO" = "$ANTES" ] && [ "$FORZAR" -eq 0 ]; then exit 0; fi   # al día: silencioso
+if [ "$REMOTO" = "$ANTES" ] && [ "$FORZAR" -eq 0 ] && deps_ok; then exit 0; fi   # al día: silencioso
 
 if ! COMO git -C "$DIR" fetch -q origin main 2>/tmp/gd_fetch.err; then
   estado "error" "No se pudo descargar de GitHub: $(tail -n 2 /tmp/gd_fetch.err)"; exit 1
@@ -47,6 +69,7 @@ fi
 regresar() {
   if [ "$ANTES" != "$NUEVO" ]; then
     COMO git -C "$DIR" reset -q --hard "$ANTES"
+    deps_ok || instalar_deps || true
     COMO bash -c "git -C '$DIR' rev-parse --short HEAD > '$DIR/VERSION'"
     systemctl restart golddigger
     estado "error" "$1 Se regresó a la versión ${ANTES:0:7}."
@@ -55,6 +78,8 @@ regresar() {
   fi
   exit 1
 }
+
+deps_ok || instalar_deps || regresar "No se pudieron instalar las dependencias: $(tail -n 3 /tmp/gd_npm.log)"
 
 # Pruebas antes de poner la versión en línea
 probar() {

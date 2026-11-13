@@ -6,3 +6,37 @@
 @media(max-width:650px){#golddigger .gf-nodes{grid-template-columns:repeat(2,minmax(0,1fr))}#golddigger .gf-new{grid-template-columns:1fr}#golddigger .gf-fields{grid-template-columns:1fr}#golddigger .gf-toolbar select{width:100%}#golddigger .gf-board{padding:20px 12px}#golddigger .gf-extra{grid-template-columns:1fr}#golddigger .gf-extra button{justify-self:start}}
 body{margin:0;background:#080808;padding:20px;font-family:Arial,Helvetica,sans-serif}#golddigger{max-width:1440px;margin:auto}#golddigger .gd-logo{display:none}
 @media(max-width:580px){body{padding:0}#golddigger{border-radius:0}}
+
+/* ── Vistas: carga, inicio de sesión y app ───────────────────────────── */
+#golddigger > section, #golddigger > #gd-app { display: none; }
+#golddigger[data-view="loading"] > #gd-loading,
+#golddigger[data-view="login"] > #gd-login,
+#golddigger[data-view="app"] > #gd-app { display: block; }
+#golddigger[data-view="login"], #golddigger[data-view="loading"] { min-height: calc(100vh - 40px); display: grid; place-items: center; }
+#golddigger .gd-login { padding: 32px 18px; width: 100%; }
+#golddigger #gd-loading { text-align: center; }
+#golddigger .gd-login-card { max-width: 380px; margin: auto; display: grid; gap: 16px; padding: 32px 28px; background: var(--gd-panel); border: 1px solid var(--gd-line); border-radius: 16px; }
+#golddigger .gd-login-card .gd-brand { margin-bottom: 8px; }
+#golddigger .gd-login-card h1 { margin: 0; }
+#golddigger .gd-login-card .gd-action { padding: 12px 15px; font-size: 13px; }
+#golddigger .gd-login-card .gd-action[disabled] { opacity: .6; cursor: progress; }
+#golddigger .gd-error { color: #ff8a9a; min-height: 0; }
+#golddigger .gd-error:empty { display: none; }
+#golddigger .gd-invalid { border-color: var(--gd-red) !important; }
+
+/* ── Menú de usuario ──────────────────────────────────────────────────── */
+#golddigger .gd-usermenu { position: relative; }
+#golddigger button.gd-avatar { border: 1px solid transparent; color: var(--gd-text); }
+#golddigger button.gd-avatar:hover { border-color: #555; }
+#golddigger .gd-userpanel { position: absolute; right: 0; top: 42px; z-index: 20; width: 240px; display: grid; gap: 8px; padding: 14px; background: #202020; border: 1px solid #3b3b3b; border-radius: 12px; box-shadow: 0 12px 30px rgba(0,0,0,.5); }
+#golddigger .gd-userpanel[hidden] { display: none; }
+#golddigger .gd-userpanel small { color: var(--gd-muted); overflow-wrap: anywhere; margin-bottom: 4px; }
+#golddigger .gd-userpanel .gd-button { text-align: left; border-radius: 8px; }
+#golddigger .gd-empty { padding: 28px; text-align: center; border: 1px dashed #3b3b3b; border-radius: 12px; color: var(--gd-muted); }
+#golddigger .gd-form .gd-error { grid-column: 1 / -1; }
+#golddigger .gd-action[disabled], #golddigger .gd-button[disabled] { opacity: .55; cursor: progress; }
+#golddigger .gf-dirty { color: #e7c46e; }
+@media (max-width: 580px) {
+  #golddigger .gd-top > .gd-usermenu { margin-left: auto; }
+  #golddigger[data-view="login"], #golddigger[data-view="loading"] { min-height: 100vh; }
+}
